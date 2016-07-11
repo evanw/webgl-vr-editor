@@ -1,0 +1,4 @@
+.DS_Store
+/src/core/shaders.sk
+/www/compiled.js
+/node_modules/

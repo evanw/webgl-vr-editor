@@ -1,0 +1,305 @@
+enum Tool {
+  MOVE
+  SUBTRACT
+  ADD
+}
+
+class Label {
+  const text string
+  const tool Tool
+  var thetaWidth = 0.0
+  var thetaLeft = 0.0
+  var depth = INACTIVE_DEPTH
+
+  def thetaCenter double {
+    return thetaLeft + thetaWidth / 2
+  }
+
+  def thetaRight double {
+    return thetaLeft + thetaWidth
+  }
+}
+
+namespace Label {
+  const FONT_SIZE = 0.05
+  const PHI = -1.05
+  const ACTIVE_DEPTH = 1.8
+  const INACTIVE_DEPTH = 2.0
+  const ACTIVE_COLOR = Color.RED
+  const INACTIVE_COLOR = Color.WHITE
+}
+
+class App :: HeadsetDelegate {
+  const _context GPU.Context
+  const _pool GPU.BufferPool
+  const _floorTexture GPU.Texture
+  const _fontTexture GPU.Texture
+  const _textureMaterial GPU.Material
+  const _colorTextureMaterial GPU.Material
+  const _modelview = Matrix.new
+  const _orientation = Matrix.new
+  const _traceResult = TraceResult.new
+
+  var _googleCardboardheadset GoogleCardboardHeadset = null
+  var _passThroughHeadset PassThroughHeadset = null
+
+  var _font Font = null
+  var _headset Headset = null
+  var _voxels Voxels = null
+
+  var _hasDeviceOrientation = false
+  var _headsetButtonState = false
+  var _headsetPreviousButtonState = false
+  var _mouseAngleX = 0.0
+  var _mouseAngleY = 0.0
+  var _mouseButtonState = false
+  var _mousePreviousButtonState = false
+  var _screenOrientation = 0.0
+
+  var _cameraPhi = 0.0
+  var _cameraTheta = 0.0
+  var _toolbarTheta = 0.0
+  var _toolbarThetaOffset = 0.0
+
+  var _deviceAlpha = 0.0
+  var _deviceBeta = 0.0
+  var _deviceGamma = 0.0
+
+  var _deviceAlphaRate = 0.0
+  var _deviceBetaRate = 0.0
+  var _deviceGammaRate = 0.0
+
+  var _eyeX = 0.5
+  var _eyeY = 0.5
+  var _eyeZ = 0.5
+
+  var _keyboardVelocityX = 0.0
+  var _keyboardVelocityZ = 0.0
+
+  var _labelActiveIndex = 0
+  var _labels = [
+    Label.new(" MOVE ", .MOVE),
+    Label.new(" SUBTRACT ", .SUBTRACT),
+    Label.new(" ADD ", .ADD),
+  ]
+
+  def new(context GPU.Context) {
+    _context = context
+    _pool = GPU.BufferPool.new(context)
+    _textureMaterial = context.createMaterial(.POSITION_F3_COORD_F2, GLSLX_SOURCE_TEXTURE_VERTEX, GLSLX_SOURCE_TEXTURE_FRAGMENT)
+    _colorTextureMaterial = context.createMaterial(.POSITION_F3_COORD_F2_COLOR_B4, GLSLX_SOURCE_COLOR_TEXTURE_VERTEX, GLSLX_SOURCE_COLOR_TEXTURE_FRAGMENT)
+    _floorTexture = context.createTextureFromURL(.RGBA_LINEAR_MIPMAP_LINEAR_REPEAT, "images/panel.jpg")
+    _fontTexture = context.createTextureFromURL(.RGBA_LINEAR_MIPMAP_LINEAR_REPEAT, "images/berlin_sans.png")
+    _passThroughHeadset = PassThroughHeadset.new(context, self)
+    _voxels = Voxels.new(context, _textureMaterial, _pool)
+    _font = Font.new(context, _colorTextureMaterial, _pool, Font.BERLIN_SANS_GLYPH_TABLE, -0.07)
+
+    var left = 0.0
+    for label in _labels {
+      label.thetaWidth = _font.measureText(label.text, Label.FONT_SIZE, Label.PHI)
+      label.thetaLeft = left
+      left += label.thetaWidth
+    }
+
+    for x in -8..9 {
+      for y in -8..9 {
+        for z in -8..9 {
+          _voxels.set(x, y, z, x * x + y * y + z * z < 8 * 8 ? .EMPTY : .SOLID)
+        }
+      }
+    }
+  }
+
+  def activeTool Tool {
+    return _labels[_labelActiveIndex].tool
+  }
+
+  def draw {
+    _context.beginFrame
+    _headset = _screenOrientation == 0 ? _passThroughHeadset : _googleCardboardheadset ?= GoogleCardboardHeadset.new(_context, _pool, self)
+    _headset.draw
+  }
+
+  def drawEye(offsetX double, projection Matrix) {
+    _modelview
+      .loadIdentity
+      .translateBy(offsetX * EYE_SEPARATION_SCALE, 0, 0)
+      .multiplyBy(_orientation)
+      .translateBy(-_eyeX, -_eyeY, -_eyeZ)
+
+    _textureMaterial.setUniformMat4(GLSLX_NAME_MATRIX_MODELVIEW, _modelview)
+    _textureMaterial.setUniformMat4(GLSLX_NAME_MATRIX_PROJECTION, projection)
+    _textureMaterial.setUniformSampler(GLSLX_NAME_TEXTURE, _floorTexture, 0)
+    _voxels.draw
+
+    _colorTextureMaterial.setUniformMat4(GLSLX_NAME_MATRIX_MODELVIEW, _modelview)
+    _colorTextureMaterial.setUniformMat4(GLSLX_NAME_MATRIX_PROJECTION, projection)
+    _colorTextureMaterial.setUniformSampler(GLSLX_NAME_TEXTURE, _fontTexture, 0)
+    _context.setDepthMode(.NONE)
+    _context.setPremultipliedBlendState
+
+    for i in 0.._labels.count {
+      var label = _labels[i]
+      _font.placeText(label.text, Label.FONT_SIZE, _eyeX, _eyeY, _eyeZ, _toolbarTheta + label.thetaLeft,
+        Label.PHI, label.depth, i == _labelActiveIndex ? Label.ACTIVE_COLOR : Label.INACTIVE_COLOR)
+    }
+
+    _font.placeText("+", 0.05, _eyeX, _eyeY, _eyeZ, _cameraTheta, _cameraPhi, _cameraPhi < -1 ? Label.ACTIVE_DEPTH - 0.1 : _traceResult.distance, .WHITE)
+    _font.placeText("-".repeat(111), 0.1, _eyeX, _eyeY, _eyeZ, _toolbarTheta + Math.PI, -1, 2, .WHITE)
+
+    _font.draw
+    _context.setCopyBlendState
+  }
+
+  def updateKeyboardVelocity(deltaX double, deltaZ double) {
+    _keyboardVelocityX = deltaX
+    _keyboardVelocityZ = deltaZ
+  }
+
+  def updateScreenOrientation(degrees double) {
+    _screenOrientation = degrees
+  }
+
+  def updateMouseButtonState(value bool) {
+    _mouseButtonState = value
+  }
+
+  def updateHeadsetButtonState(value bool) {
+    _headsetButtonState = value
+  }
+
+  def updateDeviceOrientation(alphaDegrees double, betaDegrees double, gammaDegrees double) {
+    _deviceAlpha = alphaDegrees
+    _deviceBeta = betaDegrees
+    _deviceGamma = gammaDegrees
+    _hasDeviceOrientation = true
+  }
+
+  def updateDeviceOrientationRate(alphaRateDegrees double, betaRateDegrees double, gammaRateDegrees double) {
+    _deviceAlphaRate = alphaRateDegrees
+    _deviceBetaRate = betaRateDegrees
+    _deviceGammaRate = gammaRateDegrees
+    _hasDeviceOrientation = true
+  }
+
+  def applyMouseMovement(movementX double, movementY double) {
+    const ROTATION_SPEED_IN_RADIANS = 0.005
+    _mouseAngleY += movementX * ROTATION_SPEED_IN_RADIANS
+    _mouseAngleY -= Math.floor(_mouseAngleY / (2 * Math.PI)) * (2 * Math.PI)
+    _mouseAngleX = Math.clamp(_mouseAngleX + movementY * ROTATION_SPEED_IN_RADIANS, -Math.PI / 2, Math.PI / 2)
+  }
+
+  def update(seconds double) {
+    if _hasDeviceOrientation {
+      # Try to render a frame ahead due to lag inherent in the pipeline
+      _deviceAlpha += _deviceAlphaRate * seconds
+      _deviceBeta += _deviceBetaRate * seconds
+      _deviceGamma += _deviceGammaRate * seconds
+
+      _orientation
+        .loadIdentity
+
+        # Take the screen rotation from the OS into account
+        .rotateBy(0, 0, 1, _screenOrientation * DEGREES_TO_RADIANS)
+
+        # Inverse of https://w3c.github.io/deviceorientation/spec-source-orientation.html
+        .rotateBy(0, 1, 0, -_deviceGamma * DEGREES_TO_RADIANS)
+        .rotateBy(1, 0, 0, -_deviceBeta * DEGREES_TO_RADIANS)
+        .rotateBy(0, 0, 1, -_deviceAlpha * DEGREES_TO_RADIANS)
+
+        # Identity should be when the back of the phone faces forward instead of down
+        .rotateBy(1, 0, 0, Math.PI / 2)
+    }
+
+    else {
+      _orientation
+        .loadIdentity
+        .rotateBy(1, 0, 0, _mouseAngleX)
+        .rotateBy(0, 1, 0, _mouseAngleY)
+    }
+
+    var result = _traceResult
+    var speed = seconds * 4
+    var speedX = _keyboardVelocityX * speed
+    var speedZ = _keyboardVelocityZ * speed
+
+    # The move tool always moves forward
+    if activeTool == .MOVE && _headsetButtonState {
+      speedZ -= speed
+    }
+
+    # Move left/right
+    _eyeX += _orientation.m00 * speedX
+    _eyeY += _orientation.m01 * speedX
+    _eyeZ += _orientation.m02 * speedX
+
+    # Move forward/backward
+    _eyeX += _orientation.m20 * speedZ
+    _eyeY += _orientation.m21 * speedZ
+    _eyeZ += _orientation.m22 * speedZ
+
+    # Figure out where the camera is pointing
+    _cameraTheta = Math.atan2(-_orientation.m20, _orientation.m22)
+    _cameraPhi = Math.asin(-_orientation.m21)
+
+    # Figure out what's under the cursor
+    _voxels.trace(_eyeX, _eyeY, _eyeZ, -_orientation.m20, -_orientation.m21, -_orientation.m22, result)
+
+    if _headsetButtonState && !_headsetPreviousButtonState || _mouseButtonState && !_mousePreviousButtonState {
+      switch activeTool {
+        case .SUBTRACT { _voxels.set(result.cellX, result.cellY, result.cellZ, .EMPTY) }
+        case .ADD { _voxels.set(result.cellX + result.normalX, result.cellY + result.normalY, result.cellZ + result.normalZ, .SOLID) }
+      }
+    }
+
+    # Keep the UI under the camera
+    if _cameraPhi > -1 {
+      _toolbarTheta = _cameraTheta - _labels[_labelActiveIndex].thetaCenter + _toolbarThetaOffset
+      _toolbarThetaOffset *= Math.pow(0.0001, seconds)
+    }
+
+    # Stop moving the UI when the camera is pointing at it
+    else {
+      var relativeTheta = wrapAngle(_cameraTheta - _toolbarTheta)
+      var count = _labels.count
+
+      # Change selection using the angle
+      for i in 0..count {
+        var label = _labels[i]
+        if relativeTheta >= label.thetaLeft && relativeTheta < label.thetaRight {
+          _labelActiveIndex = i
+          break
+        }
+      }
+
+      # Rotate the toolbar toward the camera
+      _toolbarThetaOffset = _toolbarTheta - _cameraTheta + _labels[_labelActiveIndex].thetaCenter
+      _toolbarThetaOffset = wrapAngle(_toolbarThetaOffset + Math.PI / 2) - Math.PI / 2
+    }
+
+    # Update label animations
+    for i in 0.._labels.count {
+      var label = _labels[i]
+      var targetDepth = i == _labelActiveIndex ? Label.ACTIVE_DEPTH : Label.INACTIVE_DEPTH
+      label.depth += (targetDepth - label.depth) * (1 - Math.pow(0.0001, seconds))
+    }
+
+    _headsetPreviousButtonState = _headsetButtonState
+    _mousePreviousButtonState = _mouseButtonState
+  }
+}
+
+namespace App {
+  const EYE_SEPARATION_SCALE = 0.1
+
+  def wrapAngle(radians double) double {
+    return radians - Math.floor(radians / (2 * Math.PI)) * (2 * Math.PI)
+  }
+}
+
+namespace GPU.VertexFormat {
+  const POSITION_F2 = VertexFormat.new.add(GLSLX_NAME_POSITION2, .FLOAT, 2)
+  const POSITION_F3 = VertexFormat.new.add(GLSLX_NAME_POSITION3, .FLOAT, 3)
+  const POSITION_F3_COORD_F2 = VertexFormat.new.add(GLSLX_NAME_POSITION3, .FLOAT, 3).add(GLSLX_NAME_COORD2, .FLOAT, 2)
+  const POSITION_F3_COORD_F2_COLOR_B4 = VertexFormat.new.add(GLSLX_NAME_POSITION3, .FLOAT, 3).add(GLSLX_NAME_COORD2, .FLOAT, 2).add(GLSLX_NAME_COLOR4, .BYTE, 4)
+}

@@ -1,0 +1,391 @@
+enum Cell {
+  SOLID
+  EMPTY
+}
+
+class TraceResult {
+  var cellX = 0
+  var cellY = 0
+  var cellZ = 0
+  var normalX = 0
+  var normalY = 0
+  var normalZ = 0
+  var distance = 0.0
+}
+
+class Voxels {
+  const _context GPU.Context
+  const _material GPU.Material
+  const _pool GPU.BufferPool
+  const _chunkMap IntMap<Chunk> = {}
+  const _chunkList List<Chunk> = []
+
+  def get(x int, y int, z int) Cell {
+    var chunk = _chunkMap.get(_key(x, y, z), null)
+    return chunk == null ? .SOLID : chunk.get(x & CELLS_MASK, y & CELLS_MASK, z & CELLS_MASK)
+  }
+
+  def set(x int, y int, z int, cell Cell) {
+    var key = _key(x, y, z)
+    var map = _chunkMap
+    var chunk = map.get(key, null)
+
+    if chunk == null && cell != .SOLID {
+      if !_isValid(x, y, z) {
+        return
+      }
+
+      chunk = Chunk.new(x & ~CELLS_MASK, y & ~CELLS_MASK, z & ~CELLS_MASK)
+
+      var xneg = map.get(_key(x - CELLS_SIZE, y, z), null)
+      var xpos = map.get(_key(x + CELLS_SIZE, y, z), null)
+      var yneg = map.get(_key(x, y - CELLS_SIZE, z), null)
+      var ypos = map.get(_key(x, y + CELLS_SIZE, z), null)
+      var zneg = map.get(_key(x, y, z - CELLS_SIZE), null)
+      var zpos = map.get(_key(x, y, z + CELLS_SIZE), null)
+
+      if xneg != null {
+        assert(xneg.xpos == null)
+        assert(xneg.originX == chunk.originX - CELLS_SIZE)
+        assert(xneg.originY == chunk.originY)
+        assert(xneg.originZ == chunk.originZ)
+        chunk.xneg = xneg
+        xneg.xpos = chunk
+      }
+
+      if xpos != null {
+        assert(xpos.xneg == null)
+        assert(xpos.originX == chunk.originX + CELLS_SIZE)
+        assert(xpos.originY == chunk.originY)
+        assert(xpos.originZ == chunk.originZ)
+        chunk.xpos = xpos
+        xpos.xneg = chunk
+      }
+
+      if yneg != null {
+        assert(yneg.ypos == null)
+        assert(yneg.originX == chunk.originX)
+        assert(yneg.originY == chunk.originY - CELLS_SIZE)
+        assert(yneg.originZ == chunk.originZ)
+        chunk.yneg = yneg
+        yneg.ypos = chunk
+      }
+
+      if ypos != null {
+        assert(ypos.yneg == null)
+        assert(ypos.originX == chunk.originX)
+        assert(ypos.originY == chunk.originY + CELLS_SIZE)
+        assert(ypos.originZ == chunk.originZ)
+        chunk.ypos = ypos
+        ypos.yneg = chunk
+      }
+
+      if zneg != null {
+        assert(zneg.zpos == null)
+        assert(zneg.originX == chunk.originX)
+        assert(zneg.originY == chunk.originY)
+        assert(zneg.originZ == chunk.originZ - CELLS_SIZE)
+        chunk.zneg = zneg
+        zneg.zpos = chunk
+      }
+
+      if zpos != null {
+        assert(zpos.zneg == null)
+        assert(zpos.originX == chunk.originX)
+        assert(zpos.originY == chunk.originY)
+        assert(zpos.originZ == chunk.originZ + CELLS_SIZE)
+        chunk.zpos = zpos
+        zpos.zneg = chunk
+      }
+
+      map[key] = chunk
+      _chunkList.append(chunk)
+    }
+
+    chunk?.set(x & CELLS_MASK, y & CELLS_MASK, z & CELLS_MASK, cell)
+  }
+
+  def draw {
+    for chunk in _chunkList {
+      _context.draw(.TRIANGLES, _material, chunk.area(_pool))
+    }
+  }
+
+  def trace(x double, y double, z double, rayX double, rayY double, rayZ double, result TraceResult) bool {
+    result.cellX = Math.floor(x) as int
+    result.cellY = Math.floor(y) as int
+    result.cellZ = Math.floor(z) as int
+
+    result.normalX = 0
+    result.normalY = 0
+    result.normalZ = 0
+
+    const floorX = (result.cellX - x) / rayX
+    const floorY = (result.cellY - y) / rayY
+    const floorZ = (result.cellZ - z) / rayZ
+
+    const ceilX = (Math.ceil(x) - x) / rayX
+    const ceilY = (Math.ceil(y) - y) / rayY
+    const ceilZ = (Math.ceil(z) - z) / rayZ
+
+    const stepX = rayX > 0 ? 1 : rayX < 0 ? -1 : 0
+    const stepY = rayY > 0 ? 1 : rayY < 0 ? -1 : 0
+    const stepZ = rayZ > 0 ? 1 : rayZ < 0 ? -1 : 0
+
+    const deltaX = stepX / rayX
+    const deltaY = stepY / rayY
+    const deltaZ = stepZ / rayZ
+
+    var maxX = Math.max(floorX, ceilX)
+    var maxY = Math.max(floorY, ceilY)
+    var maxZ = Math.max(floorZ, ceilZ)
+    var axis = 0
+
+    for i in 0..100 {
+      result.distance = Math.min(maxX, maxY, maxZ)
+
+      if result.distance == maxX {
+        result.cellX += stepX
+        maxX += deltaX
+        axis = 0
+      }
+
+      else if result.distance == maxY {
+        result.cellY += stepY
+        maxY += deltaY
+        axis = 1
+      }
+
+      else {
+        result.cellZ += stepZ
+        maxZ += deltaZ
+        axis = 2
+      }
+
+      if get(result.cellX, result.cellY, result.cellZ) != .EMPTY {
+        if axis == 0 { result.normalX = -stepX }
+        else if axis == 1 { result.normalY = -stepY }
+        else { result.normalZ = -stepZ }
+        return true
+      }
+    }
+
+    return false
+  }
+}
+
+namespace Voxels {
+  const _vertices = DataArray.new
+
+  # Each chunk has a CELLS_SIZE * CELLS_SIZE * CELLS_SIZE block of cells
+  const CELLS_SHIFT = 3
+  const CELLS_SIZE = 1 << CELLS_SHIFT
+  const CELLS_MASK = (1 << CELLS_SHIFT) - 1
+
+  # Chunk coordinates fit in a 32-bit integer (1 in chunk coordinates corresponds to CELLS_SIZE in cell coordinates)
+  const CHUNK_BITS_X = 11
+  const CHUNK_BITS_Y = 10
+  const CHUNK_BITS_Z = 11
+  const CHUNK_MASK_X = (1 << CHUNK_BITS_X) - 1
+  const CHUNK_MASK_Y = (1 << CHUNK_BITS_Y) - 1
+  const CHUNK_MASK_Z = (1 << CHUNK_BITS_Z) - 1
+
+  def _isValid(cellX int, cellY int, cellZ int) bool {
+    return
+      cellX == (cellX << (32 - CHUNK_BITS_X - CELLS_SHIFT) >> (32 - CHUNK_BITS_X - CELLS_SHIFT)) &&
+      cellY == (cellY << (32 - CHUNK_BITS_Y - CELLS_SHIFT) >> (32 - CHUNK_BITS_Y - CELLS_SHIFT)) &&
+      cellZ == (cellZ << (32 - CHUNK_BITS_Z - CELLS_SHIFT) >> (32 - CHUNK_BITS_Z - CELLS_SHIFT))
+  }
+
+  def _key(cellX int, cellY int, cellZ int) int {
+    assert(_isValid(cellX, cellY, cellZ))
+    return
+      (cellX >> CELLS_SHIFT & CHUNK_MASK_X) |
+      (cellY >> CELLS_SHIFT & CHUNK_MASK_Y) << CHUNK_BITS_X |
+      (cellZ >> CELLS_SHIFT & CHUNK_MASK_Z) << (CHUNK_BITS_X + CHUNK_BITS_Y)
+  }
+
+  class Quad {
+    const x double
+    const y double
+    const z double
+
+    const ux double
+    const uy double
+    const uz double
+
+    const vx double
+    const vy double
+    const vz double
+  }
+
+  class Chunk {
+    const originX int
+    const originY int
+    const originZ int
+    const cells = Uint8Array.new(CELLS_SIZE * CELLS_SIZE * CELLS_SIZE)
+
+    var xneg Chunk = null
+    var xpos Chunk = null
+    var yneg Chunk = null
+    var ypos Chunk = null
+    var zneg Chunk = null
+    var zpos Chunk = null
+
+    var _cachedQuads List<Quad> = null
+    var _cachedArea GPU.BufferArea = null
+
+    def get(localX int, localY int, localZ int) Cell {
+      assert(0 <= localX && localX < CELLS_SIZE)
+      assert(0 <= localY && localY < CELLS_SIZE)
+      assert(0 <= localZ && localZ < CELLS_SIZE)
+      return cells[localX | localY << CELLS_SHIFT | localZ << 2 * CELLS_SHIFT] as Cell
+    }
+
+    def set(localX int, localY int, localZ int, cell Cell) {
+      assert(0 <= localX && localX < CELLS_SIZE)
+      assert(0 <= localY && localY < CELLS_SIZE)
+      assert(0 <= localZ && localZ < CELLS_SIZE)
+      var index = localX | localY << CELLS_SHIFT | localZ << 2 * CELLS_SHIFT
+
+      if cells[index] != cell {
+        cells[index] = cell
+        _invalidate
+
+        if localX == 0 { xneg?._invalidate }
+        else if localX == CELLS_MASK { xpos?._invalidate }
+
+        if localY == 0 { yneg?._invalidate }
+        else if localY == CELLS_MASK { ypos?._invalidate }
+
+        if localZ == 0 { zneg?._invalidate }
+        else if localZ == CELLS_MASK { zpos?._invalidate }
+      }
+    }
+
+    def _invalidate {
+      _cachedArea?.free
+      _cachedQuads = null
+      _cachedArea = null
+    }
+
+    def quads List<Quad> {
+      if _cachedQuads == null {
+        var quads List<Quad> = []
+        var originX = self.originX
+        var originY = self.originY
+        var originZ = self.originZ
+        var cells = self.cells
+        var xneg = self.xneg
+        var xpos = self.xpos
+        var yneg = self.yneg
+        var ypos = self.ypos
+        var zneg = self.zneg
+        var zpos = self.zpos
+        var i = 0
+
+        for z in 0..CELLS_SIZE {
+          for y in 0..CELLS_SIZE {
+            for x in 0..CELLS_SIZE {
+              var cell = cells[i] as Cell
+
+              if cell == .EMPTY {
+                const SIZE = CELLS_SIZE
+                const MASK = CELLS_MASK
+                const SHIFT = CELLS_SHIFT
+
+                var globalX = originX + x
+                var globalY = originY + y
+                var globalZ = originZ + z
+
+                var xnegCell = x > 0    ? cells[i - 1]           as Cell : xneg != null ? xneg.cells[i ^ MASK]                as Cell : Cell.SOLID
+                var ynegCell = y > 0    ? cells[i - SIZE]        as Cell : yneg != null ? yneg.cells[i ^ (MASK << SHIFT)]     as Cell : Cell.SOLID
+                var znegCell = z > 0    ? cells[i - SIZE * SIZE] as Cell : zneg != null ? zneg.cells[i ^ (MASK << 2 * SHIFT)] as Cell : Cell.SOLID
+                var xposCell = x < MASK ? cells[i + 1]           as Cell : xpos != null ? xpos.cells[i ^ MASK]                as Cell : Cell.SOLID
+                var yposCell = y < MASK ? cells[i + SIZE]        as Cell : ypos != null ? ypos.cells[i ^ (MASK << SHIFT)]     as Cell : Cell.SOLID
+                var zposCell = z < MASK ? cells[i + SIZE * SIZE] as Cell : zpos != null ? zpos.cells[i ^ (MASK << 2 * SHIFT)] as Cell : Cell.SOLID
+
+                if xnegCell != .EMPTY { quads.append(Quad.new(globalX, globalY, globalZ + 1, 0, 0, -1, 0, 1, 0)) }
+                if ynegCell != .EMPTY { quads.append(Quad.new(globalX, globalY, globalZ + 1, 1, 0, 0, 0, 0, -1)) }
+                if znegCell != .EMPTY { quads.append(Quad.new(globalX, globalY, globalZ, 1, 0, 0, 0, 1, 0)) }
+                if xposCell != .EMPTY { quads.append(Quad.new(globalX + 1, globalY, globalZ, 0, 0, 1, 0, 1, 0)) }
+                if yposCell != .EMPTY { quads.append(Quad.new(globalX, globalY + 1, globalZ, 1, 0, 0, 0, 0, 1)) }
+                if zposCell != .EMPTY { quads.append(Quad.new(globalX + 1, globalY, globalZ + 1, -1, 0, 0, 0, 1, 0)) }
+              }
+
+              i++
+            }
+          }
+        }
+
+        _cachedQuads = quads
+      }
+
+      return _cachedQuads
+    }
+
+    def area(pool GPU.BufferPool) GPU.BufferArea {
+      if _cachedArea == null {
+        _vertices.clear
+
+        for quad in quads {
+          var x = quad.x
+          var y = quad.y
+          var z = quad.z
+
+          var ux = quad.ux
+          var uy = quad.uy
+          var uz = quad.uz
+
+          var vx = quad.vx
+          var vy = quad.vy
+          var vz = quad.vz
+
+          var uvx = x + ux + vx
+          var uvy = y + uy + vy
+          var uvz = z + uz + vz
+
+          _vertices.appendFloat(x)
+          _vertices.appendFloat(y)
+          _vertices.appendFloat(z)
+          _vertices.appendFloat(0)
+          _vertices.appendFloat(0)
+
+          _vertices.appendFloat(x + ux)
+          _vertices.appendFloat(y + uy)
+          _vertices.appendFloat(z + uz)
+          _vertices.appendFloat(1)
+          _vertices.appendFloat(0)
+
+          _vertices.appendFloat(uvx)
+          _vertices.appendFloat(uvy)
+          _vertices.appendFloat(uvz)
+          _vertices.appendFloat(1)
+          _vertices.appendFloat(1)
+
+          _vertices.appendFloat(x)
+          _vertices.appendFloat(y)
+          _vertices.appendFloat(z)
+          _vertices.appendFloat(0)
+          _vertices.appendFloat(0)
+
+          _vertices.appendFloat(uvx)
+          _vertices.appendFloat(uvy)
+          _vertices.appendFloat(uvz)
+          _vertices.appendFloat(1)
+          _vertices.appendFloat(1)
+
+          _vertices.appendFloat(x + vx)
+          _vertices.appendFloat(y + vy)
+          _vertices.appendFloat(z + vz)
+          _vertices.appendFloat(0)
+          _vertices.appendFloat(1)
+        }
+
+        _cachedArea = pool.allocate(GPU.VertexFormat.POSITION_F3_COORD_F2, _vertices.bytes)
+      }
+
+      return _cachedArea
+    }
+  }
+}

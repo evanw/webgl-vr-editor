@@ -1,0 +1,97 @@
+interface Headset {
+  def draw
+}
+
+interface HeadsetDelegate {
+  def drawEye(offsetX double, projection Matrix)
+}
+
+class PassThroughHeadset :: Headset {
+  const _context GPU.Context
+  const _delegate HeadsetDelegate
+  const _projection = Matrix.new
+
+  def draw {
+    _context.clear(.ALL)
+    _context.setDepthMode(.READ_WRITE)
+    _delegate.drawEye(0, _projection.createPerspective(60 * Math.PI / 180, _context.width / (_context.height as double), 0.1, 100))
+  }
+}
+
+class GoogleCardboardHeadset :: Headset {
+  const _context GPU.Context
+  const _material GPU.Material
+  const _quadArea GPU.BufferArea
+  const _delegate HeadsetDelegate
+  const _colorTexture GPU.Texture
+  const _depthStencilTexture GPU.Texture
+  const _textureSet GPU.TextureSet
+  const _projectionLeft = Matrix.new
+  const _projectionRight = Matrix.new
+  var _viewer = LibGVR.ViewerData.DEFAULT
+  var _device = LibGVR.DeviceData.IPHONE_6
+
+  def new(context GPU.Context, pool GPU.BufferPool, delegate HeadsetDelegate) {
+    _context = context
+    _material = context.createMaterial(.POSITION_F2, GLSLX_SOURCE_HEADSET_VERTEX, GLSLX_SOURCE_HEADSET_FRAGMENT)
+    _quadArea = pool.allocate(.POSITION_F2, [0, 0, 1, 0, 0, 1, 1, 1])
+    _colorTexture = context.createTexture(.RGBA_LINEAR_CLAMP, 1, 1)
+    _depthStencilTexture = context.createTexture(.DEPTH_STENCIL, 1, 1)
+    _textureSet = context.createTextureSet(_colorTexture, _depthStencilTexture)
+    _delegate = delegate
+    _updateUniforms
+  }
+
+  def _updateUniforms {
+    var viewer = _viewer
+    var device = _device
+    var distortion = viewer.distortionCoefficients
+    var lensFrustum = LibGVR.getLeftEyeVisibleTanAngles(viewer, device)
+    var noLensFrustum = LibGVR.getLeftEyeNoLensTanAngles(viewer, device)
+    var viewport = LibGVR.getLeftEyeVisibleScreenRect(viewer, device, noLensFrustum)
+
+    _material.setUniformVec2(GLSLX_NAME_DISTORTION, distortion[0], distortion[1])
+    _material.setUniformVec4(GLSLX_NAME_LENS_FRUSTUM, lensFrustum[0], lensFrustum[1], lensFrustum[2], lensFrustum[3])
+    _material.setUniformVec4(GLSLX_NAME_NO_LENS_FRUSTUM, noLensFrustum[0], noLensFrustum[1], noLensFrustum[2], noLensFrustum[3])
+    _material.setUniformVec4(GLSLX_NAME_VIEWPORT, viewport[0], viewport[1], viewport[2], viewport[3])
+    _material.setUniformSampler(GLSLX_NAME_TEXTURE, _colorTexture, 0)
+
+    var near = 0.1
+    _projectionLeft.createFrustum(lensFrustum[0] * near, lensFrustum[2] * near, lensFrustum[3] * near, lensFrustum[1] * near, near, 1000)
+    _projectionRight.copyFrom(_projectionLeft)
+    _projectionRight.m02 = -_projectionRight.m02
+  }
+
+  def draw {
+    var context = _context
+    var width = context.width
+    var height = context.height
+
+    # Make sure the target texture is the size of the screen
+    _colorTexture.resize(width, height)
+    _depthStencilTexture.resize(width, height)
+
+    # Enable draw-to-texture
+    context.setTextureSet(_textureSet)
+    _context.clear(.ALL)
+
+    # Draw the left eye
+    context.setViewport(0, 0, width / 2, height)
+    context.setDepthMode(.READ_WRITE)
+    _delegate.drawEye(1, _projectionLeft)
+
+    # Draw the right eye
+    context.setViewport(width / 2, 0, (width + 1) / 2, height)
+    context.setDepthMode(.READ_WRITE)
+    _delegate.drawEye(-1, _projectionRight)
+
+    # Disable draw-to-texture
+    context.setTextureSet(null)
+    _context.clear(.ALL)
+
+    # Render the lens warp
+    context.setViewport(0, 0, width, height)
+    context.setDepthMode(.NONE)
+    context.draw(.TRIANGLE_STRIP, _material, _quadArea)
+  }
+}

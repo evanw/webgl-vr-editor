@@ -1,0 +1,73 @@
+// Do not use mediump, causes vertices to wiggle on iOS
+precision highp float;
+
+uniform sampler2D texture;
+uniform mat4 matrixModelview;
+uniform mat4 matrixProjection;
+
+uniform vec4 lensFrustum;
+uniform vec4 noLensFrustum;
+uniform vec4 viewport;
+uniform vec2 distortion;
+
+attribute vec2 coord2;
+attribute vec2 position2;
+attribute vec4 color4;
+attribute vec3 position3;
+
+varying vec2 _coord2;
+varying vec4 _color4;
+
+// Frustum coordinates
+const int LEFT = 0;
+const int TOP = 1;
+const int RIGHT = 2;
+const int BOTTOM = 3;
+
+// Viewport coordinates
+const int X = 0;
+const int Y = 1;
+const int W = 2;
+const int H = 3;
+
+export void headsetVertex() {
+  _coord2 = position2;
+  gl_Position = vec4(position2 * 2.0 - 1.0, 0, 1);
+}
+
+export void headsetFragment() {
+  float u = ((_coord2.x < 0.5 ? _coord2.x : 1.0 - _coord2.x) - viewport[X]) / viewport[W];
+  float v = (_coord2.y - viewport[Y]) / viewport[H];
+
+  float p = mix(noLensFrustum[LEFT], noLensFrustum[RIGHT], u);
+  float q = mix(noLensFrustum[BOTTOM], noLensFrustum[TOP], v);
+
+  float r2 = p * p + q * q;
+  float d = 1.0 + r2 * (distortion.x + r2 * distortion.y);
+
+  float s = (p * d - lensFrustum[LEFT]) / (lensFrustum[RIGHT] - lensFrustum[LEFT]);
+  float t = (q * d - lensFrustum[BOTTOM]) / (lensFrustum[TOP] - lensFrustum[BOTTOM]);
+
+  gl_FragColor =
+    texture2D(texture, vec2(_coord2.x < 0.5 ? s * 0.5 : 1.0 - s * 0.5, t)) *
+    clamp(10.0 - 20.0 * max(abs(0.5 - s), abs(0.5 - t)), 0.0, 1.0);
+}
+
+export void textureVertex() {
+  _coord2 = coord2;
+  gl_Position = matrixProjection * matrixModelview * vec4(position3, 1);
+}
+
+export void textureFragment() {
+  gl_FragColor = texture2D(texture, _coord2);
+}
+
+export void colorTextureVertex() {
+  _coord2 = coord2;
+  _color4 = color4;
+  gl_Position = matrixProjection * matrixModelview * vec4(position3, 1);
+}
+
+export void colorTextureFragment() {
+  gl_FragColor = texture2D(texture, _coord2) * _color4;
+}

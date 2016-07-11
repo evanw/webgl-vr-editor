@@ -1,0 +1,74 @@
+if TARGET == .JAVASCRIPT {
+  @import {
+    class WebSocketMessageEvent : HTMLEvent {
+      def isArrayBuffer bool {
+        return (self as dynamic).data is ArrayBuffer
+      }
+
+      def isBlob bool {
+        return (self as dynamic).data is Blob
+      }
+
+      def isString bool {
+        return dynamic.typeof((self as dynamic).data) == "string"
+      }
+
+      def dataAsArrayBuffer ArrayBuffer {
+        assert(isArrayBuffer)
+        return (self as dynamic).data
+      }
+
+      def dataAsBlob Blob {
+        assert(isBlob)
+        return (self as dynamic).data
+      }
+
+      def dataAsString string {
+        assert(isString)
+        return (self as dynamic).data
+      }
+    }
+
+    class WebSocketCloseEvent : HTMLEvent {
+      const wasClean bool
+      const code int
+      const reason string
+    }
+
+    class WebSocket {
+      const bufferedAmount int
+      const extensions string
+      const protocol string
+      const readyState ReadyState
+      const URL string
+
+      var binaryType string # "blob" | "arraybuffer"
+
+      var onclose fn(WebSocketCloseEvent)
+      var onerror fn(HTMLEvent)
+      var onmessage fn(WebSocketMessageEvent)
+      var onopen fn(HTMLEvent)
+
+      def new(url string)
+      def new(url string, protocol string)
+
+      def close
+      def close(code int)
+      def close(code int, reason string)
+
+      def send(data ArrayBuffer)
+      def send(data ArrayBufferView)
+      def send(data Blob)
+      def send(data string)
+    }
+  }
+
+  namespace WebSocket {
+    type ReadyState = int
+
+    const CONNECTING = 0 as ReadyState
+    const OPEN = 1 as ReadyState
+    const CLOSING = 2 as ReadyState
+    const CLOSED = 3 as ReadyState
+  }
+}

@@ -1,0 +1,136 @@
+if TARGET == .JAVASCRIPT {
+  @entry
+  def main {
+    var context GPU.HTMLContext = null
+
+    try { context = GPU.HTMLContext.new }
+    finally { if context == null { alert("Could not initialize WebGL") } }
+
+    const body = document.body
+    const canvas = context.gl.canvas
+    const style = canvas.style
+    const app = App.new(context)
+    var keys IntMap<int> = {}
+    var oldTime = performance.now
+
+    const KEY_LEFT = 37
+    const KEY_UP = 38
+    const KEY_RIGHT = 39
+    const KEY_DOWN = 40
+    const KEY_A = 65
+    const KEY_D = 68
+    const KEY_S = 83
+    const KEY_W = 87
+
+    const resize = => {
+      const width = innerWidth
+      const height = innerHeight
+      const ratio = devicePixelRatio
+      context.resize(Math.round(width * ratio) as int, Math.round(height * ratio) as int)
+    }
+
+    const tick fn() = => {
+      var newTime = performance.now
+      app.updateKeyboardVelocity(
+        (keys.get(KEY_RIGHT, 0) | keys.get(KEY_D, 0)) - (keys.get(KEY_LEFT, 0) | keys.get(KEY_A, 0)),
+        (keys.get(KEY_DOWN, 0) | keys.get(KEY_S, 0)) - (keys.get(KEY_UP, 0) | keys.get(KEY_W, 0)))
+      app.updateScreenOrientation(window.orientation)
+      app.update((newTime - oldTime) / 1000)
+      app.draw
+      oldTime = newTime
+      requestAnimationFrame(tick)
+    }
+
+    const updateHeadsetButtonState = (e HTMLTouchEvent) => {
+      e.preventDefault
+      app.updateHeadsetButtonState(!e.touches.isEmpty)
+    }
+
+    style.position = "fixed"
+    style.left = "0"
+    style.top = "0"
+    style.width = "100%"
+    style.height = "100%"
+    body.appendChild(canvas)
+
+    document.addEventListener("keydown", (e HTMLKeyboardEvent) => {
+      keys[e.which] = 1
+    })
+
+    document.addEventListener("keyup", (e HTMLKeyboardEvent) => {
+      keys[e.which] = 0
+    })
+
+    window.addEventListener("blur", (e HTMLEvent) => {
+      keys = {}
+      app.updateHeadsetButtonState(false)
+      app.updateMouseButtonState(false)
+    })
+
+    document.addEventListener("mousedown", (e HTMLMouseEvent) => {
+      e.preventDefault
+      if document.pointerLockElement != canvas {
+        canvas.requestPointerLock
+      } else {
+        app.updateMouseButtonState(true)
+      }
+    })
+
+    document.addEventListener("mouseup", (e HTMLMouseEvent) => {
+      app.updateMouseButtonState(false)
+    })
+
+    document.addEventListener("mousemove", (e HTMLMouseEvent) => {
+      if document.pointerLockElement == canvas {
+        app.applyMouseMovement(e.movementX, e.movementY)
+      }
+    })
+
+    document.addEventListener("touchstart", updateHeadsetButtonState)
+    document.addEventListener("touchmove", updateHeadsetButtonState)
+    document.addEventListener("touchend", updateHeadsetButtonState)
+    document.addEventListener("touchcancel", updateHeadsetButtonState)
+
+    window.addEventListener("devicemotion", e => {
+      var rotationRate = (e as dynamic).rotationRate
+      var alphaRate = rotationRate ? rotationRate.alpha : null
+      var betaRate = rotationRate ? rotationRate.beta : null
+      var gammaRate = rotationRate ? rotationRate.gamma : null
+
+      if alphaRate != null && betaRate != null && gammaRate != null {
+        app.updateDeviceOrientationRate(alphaRate, betaRate, gammaRate)
+      }
+    })
+
+    window.addEventListener("deviceorientation", e => {
+      var alpha = (e as dynamic).alpha
+      var beta = (e as dynamic).beta
+      var gamma = (e as dynamic).gamma
+
+      if alpha != null && beta != null && gamma != null {
+        app.updateDeviceOrientation(alpha, beta, gamma)
+      }
+    })
+
+    window.addEventListener("resize", => resize())
+    resize()
+    tick()
+
+    enableAutomaticRefresh
+  }
+
+  def enableAutomaticRefresh {
+    var source string = null
+    var fetch fn() = => {
+      var xhr = XMLHttpRequest.new
+      xhr.open("GET", "compiled.js")
+      xhr.onload = => {
+        if source == null { source = xhr.responseText }
+        else if source != xhr.responseText { location.reload }
+      }
+      xhr.onloadend = => setTimeout(fetch, 500)
+      xhr.send
+    }
+    fetch()
+  }
+}

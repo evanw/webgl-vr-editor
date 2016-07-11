@@ -1,0 +1,306 @@
+# Copyright 2014 Google Inc. All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+namespace LibGVR {
+  # Raw protocol buffer data from the Google Cardboard QR code URL
+  # Schema: https://github.com/google/wwgc/blob/master/www/CardboardDevice.proto
+  class ViewerData {
+    var _cachedInverse List<double> = null
+
+    # Distance from the display screen to the optical center of lenses.
+    const screenToLensDistance double
+
+    # Horizontal distance between optical center of the lenses.
+    const interLensDistance double
+
+    # Four-element tuple (left, right, bottom, top) of left eye's view extent
+    # angles relative to center, assuming the following:
+    #     * eye is aligned with optical center of lens
+    #     * display screen is equal or larger than extents viewable through lens
+    #     * nominal eye-to-lens distance
+    #     * mirrored field of view will be applied to the right eye
+    # These values are essentially used as an optimization to avoid rendering
+    # pixels which can't be seen.
+    const leftEyeFieldOfViewAngles List<double>
+
+    # If the phone is aligned vertically within the device by resting against
+    # a fixed top or bottom tray, this is the distance from the tray to
+    # optical center of the lenses.
+    const trayToLensDistance double
+
+    # Coefficients Ki for pincushion distortion function which maps
+    # from position on real screen to virtual screen (i.e. texture) relative
+    # to optical center:
+    #
+    #    p' = p (1 + K1 r^2 + K2 r^4 + ... + Kn r^(2n))
+    #
+    # where r is the distance in tan-angle units from the optical center,
+    # p the input point, and p' the output point.  Tan-angle units can be
+    # computed as distance on the screen divided by distance from the
+    # virtual eye to the screen.
+    const distortionCoefficients List<double>
+
+    def inverseDistortionCoefficients List<double> {
+      _cachedInverse ?= LibGVR.approximateInverse(distortionCoefficients)
+      return _cachedInverse
+    }
+  }
+
+  namespace ViewerData {
+    # https://store.google.com/product/google_cardboard
+    const DEFAULT = new(0.0393, 0.0639, [60, 60, 60, 60], 0.035, [0.33582565, 0.5534879])
+  }
+
+  class DeviceData {
+    const width double # In meters
+    const height double # In meters
+    const border double # In meters
+  }
+
+  namespace DeviceData {
+    const IPHONE_6 = new(0.104, 0.058, 0.005)
+  }
+
+  def distort(coefficients List<double>, r double) double {
+    var n = coefficients.count
+    var r2 = r * r
+    var ret = 0.0
+    for j in 0..n {
+      ret = r2 * (ret + coefficients[n - j - 1])
+    }
+    return r * (ret + 1)
+  }
+
+  # Calculates an approximate inverse to the given radial distortion parameters.
+  def approximateInverse(coefficients List<double>) List<double> {
+    const maxRadius = 1.0
+    const numSamples = 100
+    const numCoefficients = 6
+
+    # R + K1*R^3 + K2*R^5 = r, with R = rp = distort(r)
+    # Repeating for numSamples:
+    #   [ R0^3, R0^5 ] * [ K1 ] = [ r0 - R0 ]
+    #   [ R1^3, R1^5 ]   [ K2 ]   [ r1 - R1 ]
+    #   [ R2^3, R2^5 ]            [ r2 - R2 ]
+    #   [ etc... ]                [ etc... ]
+    # That is:
+    #   matA * [K1, K2] = y
+    # Solve:
+    #   [K1, K2] = inverse(transpose(matA) * matA) * transpose(matA) * y
+    var matA List<List<double>> = []
+    var vecY List<double> = []
+
+    for i in 0..numSamples {
+      var r = maxRadius * (i + 1) / numSamples
+      var rp = distort(coefficients, r)
+      var v = rp
+      var row List<double> = []
+
+      for j in 0..numCoefficients {
+        v *= rp * rp
+        row.append(v)
+      }
+
+      matA.append(row)
+      vecY.append(r - rp)
+    }
+
+    return solveLeastSquares(matA, vecY)
+  }
+
+  # Solves a least-squares matrix equation.  Given the equation A * x = y, calculate the
+  # least-square fit x = inverse(A * transpose(A)) * transpose(A) * y.  The way this works
+  # is that, while A is typically not a square matrix (and hence not invertible), A * transpose(A)
+  # is always square.  That is:
+  #   A * x = y
+  #   transpose(A) * (A * x) = transpose(A) * y   <- multiply both sides by transpose(A)
+  #   (transpose(A) * A) * x = transpose(A) * y   <- associativity
+  #   x = inverse(transpose(A) * A) * transpose(A) * y  <- solve for x
+  # Matrix A's row count (first index) must match y's value count.  A's column count (second index)
+  # determines the length of the result vector x.
+  def solveLeastSquares(matA List<List<double>>, vecY List<double>) List<double> {
+    var numSamples = matA.count
+    var numCoefficients = matA[0].count
+    assert(numSamples == vecY.count)
+
+    # Calculate transpose(A) * A
+    var matATA List<List<double>> = []
+    for j in 0..numCoefficients {
+      var row List<double> = []
+      for k in 0..numCoefficients {
+        var sum = 0.0
+        for i in 0..numSamples {
+          sum += matA[i][j] * matA[i][k]
+        }
+        row.append(sum)
+      }
+      matATA.append(row)
+    }
+
+    # Calculate transpose(A) * y
+    var vecATY List<double> = []
+    for j in 0..numCoefficients {
+      var sum = 0.0
+      for i in 0..numSamples {
+        sum += matA[i][j] * vecY[i]
+      }
+      vecATY.append(sum)
+    }
+
+    # Now solve (A * transpose(A)) * x = transpose(A) * y.
+    return solveLinear(matATA, vecATY)
+  }
+
+  # Solves a small linear equation via destructive gaussian
+  # elimination and back substitution.  This isn't generic numeric
+  # code, it's just a quick hack to work with the generally
+  # well-behaved symmetric matrices for least-squares fitting.
+  # Not intended for reuse.
+  #
+  # @param a Input positive definite symmetrical matrix. Destroyed
+  #     during calculation.
+  # @param y Input right-hand-side values. Destroyed during calculation.
+  # @return Resulting x value vector.
+  #
+  def solveLinear(a List<List<double>>, y List<double>) List<double> {
+    var n = a.count
+
+    # Gaussian elimination (no row exchange) to triangular matrix.
+    # The input matrix is a A^T A product which should be a positive
+    # definite symmetrical matrix, and if I remember my linear
+    # algebra right this implies that the pivots will be nonzero and
+    # calculations sufficiently accurate without needing row
+    # exchange.
+    for j in 0..n - 1 {
+      for k in j + 1..n {
+        var row = a[k]
+        var p = row[j] / a[j][j]
+        for i in j + 1..n {
+          row[i] = row[i] - p * a[j][i]
+        }
+        y[k] = y[k] - p * y[j]
+      }
+    }
+
+    # From this point on, only the matrix elements a[j][i] with i>=j are
+    # valid. The elimination doesn't fill in eliminated 0 values.
+
+    var x List<double> = []
+    for i in 0..n {
+      x.append(0)
+    }
+
+    # Back substitution.
+    for j = n - 1; j >= 0; --j {
+      var v = y[j]
+      for i in 0..j + 1 {
+        v -= a[j][i] * x[i]
+      }
+      x[j] = v / a[j][j]
+    }
+
+    return x
+  }
+
+  # This assumes the alignment value from the original viewer data is "BOTTOM"
+  def verticalLensOffset(viewer ViewerData, device DeviceData) double {
+    return viewer.trayToLensDistance - device.border - device.height / 2
+  }
+
+  # Calculates the tan-angles from the maximum FOV for the left eye for the
+  # current device and screen parameters.
+  def getLeftEyeVisibleTanAngles(viewer ViewerData, device DeviceData) List<double> {
+    # Tan-angles from the max FOV.
+    var fovLeft = Math.tan(-viewer.leftEyeFieldOfViewAngles[0] * DEGREES_TO_RADIANS)
+    var fovTop = Math.tan(viewer.leftEyeFieldOfViewAngles[3] * DEGREES_TO_RADIANS)
+    var fovRight = Math.tan(viewer.leftEyeFieldOfViewAngles[1] * DEGREES_TO_RADIANS)
+    var fovBottom = Math.tan(-viewer.leftEyeFieldOfViewAngles[2] * DEGREES_TO_RADIANS)
+
+    # Viewport size.
+    var halfWidth = device.width / 4
+    var halfHeight = device.height / 2
+
+    # Viewport center, measured from left lens position.
+    var centerX = viewer.interLensDistance / 2 - halfWidth
+    var centerY = -verticalLensOffset(viewer, device)
+    var centerZ = viewer.screenToLensDistance
+
+    # Tan-angles of the viewport edges, as seen through the lens.
+    var screenLeft = distort(viewer.distortionCoefficients, (centerX - halfWidth) / centerZ)
+    var screenTop = distort(viewer.distortionCoefficients, (centerY + halfHeight) / centerZ)
+    var screenRight = distort(viewer.distortionCoefficients, (centerX + halfWidth) / centerZ)
+    var screenBottom = distort(viewer.distortionCoefficients, (centerY - halfHeight) / centerZ)
+
+    # Compare the two sets of tan-angles and take the value closer to zero on each side.
+    return [
+      Math.max(fovLeft, screenLeft),
+      Math.min(fovTop, screenTop),
+      Math.min(fovRight, screenRight),
+      Math.max(fovBottom, screenBottom),
+    ]
+  }
+
+  # Calculates the tan-angles from the maximum FOV for the left eye for the
+  # current device and screen parameters, assuming no lenses.
+  def getLeftEyeNoLensTanAngles(viewer ViewerData, device DeviceData) List<double> {
+    var inverse = viewer.inverseDistortionCoefficients
+
+    # Tan-angles from the max FOV.
+    var fovLeft = distort(inverse, Math.tan(-viewer.leftEyeFieldOfViewAngles[0] * DEGREES_TO_RADIANS))
+    var fovTop = distort(inverse, Math.tan(viewer.leftEyeFieldOfViewAngles[3] * DEGREES_TO_RADIANS))
+    var fovRight = distort(inverse, Math.tan(viewer.leftEyeFieldOfViewAngles[1] * DEGREES_TO_RADIANS))
+    var fovBottom = distort(inverse, Math.tan(-viewer.leftEyeFieldOfViewAngles[2] * DEGREES_TO_RADIANS))
+
+    # Viewport size.
+    var halfWidth = device.width / 4
+    var halfHeight = device.height / 2
+
+    # Viewport center, measured from left lens position.
+    var centerX = viewer.interLensDistance / 2 - halfWidth
+    var centerY = -verticalLensOffset(viewer, device)
+    var centerZ = viewer.screenToLensDistance
+
+    # Tan-angles of the viewport edges, as seen through the lens.
+    var screenLeft = (centerX - halfWidth) / centerZ
+    var screenTop = (centerY + halfHeight) / centerZ
+    var screenRight = (centerX + halfWidth) / centerZ
+    var screenBottom = (centerY - halfHeight) / centerZ
+
+    # Compare the two sets of tan-angles and take the value closer to zero on each side.
+    return [
+      Math.max(fovLeft, screenLeft),
+      Math.min(fovTop, screenTop),
+      Math.min(fovRight, screenRight),
+      Math.max(fovBottom, screenBottom),
+    ]
+  }
+
+  # Calculates the screen rectangle visible from the left eye for the
+  # current device and screen parameters.
+  def getLeftEyeVisibleScreenRect(viewer ViewerData, device DeviceData, undistortedFrustum List<double>) List<double> {
+    var dist = viewer.screenToLensDistance
+    var eyeX = (device.width - viewer.interLensDistance) / 2
+    var eyeY = verticalLensOffset(viewer, device) + device.height / 2
+    var left = (undistortedFrustum[0] * dist + eyeX) / device.width
+    var top = (undistortedFrustum[1] * dist + eyeY) / device.height
+    var right = (undistortedFrustum[2] * dist + eyeX) / device.width
+    var bottom = (undistortedFrustum[3] * dist + eyeY) / device.height
+    return [
+      left,
+      bottom,
+      right - left,
+      top - bottom,
+    ]
+  }
+}
