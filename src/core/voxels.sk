@@ -1,6 +1,23 @@
 enum Cell {
   SOLID
   EMPTY
+  EMISSIVE
+  RED
+  BLUE
+
+  def color Color {
+    return _colors[self]
+  }
+}
+
+namespace Cell {
+  const _colors = [
+    Color.new(191, 191, 191),
+    Color.TRANSPARENT,
+    Color.WHITE,
+    Color.new(191, 0, 0),
+    Color.new(0, 0, 191),
+  ]
 }
 
 class TraceResult {
@@ -217,6 +234,8 @@ namespace Voxels {
     const vx double
     const vy double
     const vz double
+
+    const color Color
   }
 
   class Chunk {
@@ -305,12 +324,12 @@ namespace Voxels {
                 var yposCell = y < MASK ? cells[i + SIZE]        as Cell : ypos != null ? ypos.cells[i ^ (MASK << SHIFT)]     as Cell : Cell.SOLID
                 var zposCell = z < MASK ? cells[i + SIZE * SIZE] as Cell : zpos != null ? zpos.cells[i ^ (MASK << 2 * SHIFT)] as Cell : Cell.SOLID
 
-                if xnegCell != .EMPTY { quads.append(Quad.new(globalX, globalY, globalZ + 1, 0, 0, -1, 0, 1, 0)) }
-                if ynegCell != .EMPTY { quads.append(Quad.new(globalX, globalY, globalZ + 1, 1, 0, 0, 0, 0, -1)) }
-                if znegCell != .EMPTY { quads.append(Quad.new(globalX, globalY, globalZ, 1, 0, 0, 0, 1, 0)) }
-                if xposCell != .EMPTY { quads.append(Quad.new(globalX + 1, globalY, globalZ, 0, 0, 1, 0, 1, 0)) }
-                if yposCell != .EMPTY { quads.append(Quad.new(globalX, globalY + 1, globalZ, 1, 0, 0, 0, 0, 1)) }
-                if zposCell != .EMPTY { quads.append(Quad.new(globalX + 1, globalY, globalZ + 1, -1, 0, 0, 0, 1, 0)) }
+                if xnegCell != .EMPTY { quads.append(Quad.new(globalX, globalY, globalZ + 1, 0, 0, -1, 0, 1, 0, xnegCell.color)) }
+                if ynegCell != .EMPTY { quads.append(Quad.new(globalX, globalY, globalZ + 1, 1, 0, 0, 0, 0, -1, ynegCell.color)) }
+                if znegCell != .EMPTY { quads.append(Quad.new(globalX, globalY, globalZ, 1, 0, 0, 0, 1, 0, znegCell.color)) }
+                if xposCell != .EMPTY { quads.append(Quad.new(globalX + 1, globalY, globalZ, 0, 0, 1, 0, 1, 0, xposCell.color)) }
+                if yposCell != .EMPTY { quads.append(Quad.new(globalX, globalY + 1, globalZ, 1, 0, 0, 0, 0, 1, yposCell.color)) }
+                if zposCell != .EMPTY { quads.append(Quad.new(globalX + 1, globalY, globalZ + 1, -1, 0, 0, 0, 1, 0, zposCell.color)) }
               }
 
               i++
@@ -350,39 +369,45 @@ namespace Voxels {
           _vertices.appendFloat(z)
           _vertices.appendFloat(0)
           _vertices.appendFloat(0)
+          _vertices.appendColor(quad.color)
 
           _vertices.appendFloat(x + ux)
           _vertices.appendFloat(y + uy)
           _vertices.appendFloat(z + uz)
           _vertices.appendFloat(1)
           _vertices.appendFloat(0)
+          _vertices.appendColor(quad.color)
 
           _vertices.appendFloat(uvx)
           _vertices.appendFloat(uvy)
           _vertices.appendFloat(uvz)
           _vertices.appendFloat(1)
           _vertices.appendFloat(1)
+          _vertices.appendColor(quad.color)
 
           _vertices.appendFloat(x)
           _vertices.appendFloat(y)
           _vertices.appendFloat(z)
           _vertices.appendFloat(0)
           _vertices.appendFloat(0)
+          _vertices.appendColor(quad.color)
 
           _vertices.appendFloat(uvx)
           _vertices.appendFloat(uvy)
           _vertices.appendFloat(uvz)
           _vertices.appendFloat(1)
           _vertices.appendFloat(1)
+          _vertices.appendColor(quad.color)
 
           _vertices.appendFloat(x + vx)
           _vertices.appendFloat(y + vy)
           _vertices.appendFloat(z + vz)
           _vertices.appendFloat(0)
           _vertices.appendFloat(1)
+          _vertices.appendColor(quad.color)
         }
 
-        _cachedArea = pool.allocate(GPU.VertexFormat.POSITION_F3_COORD_F2, _vertices.bytes)
+        _cachedArea = pool.allocate(GPU.VertexFormat.POSITION_F3_COORD_F2_COLOR_B4, _vertices.bytes)
       }
 
       return _cachedArea
