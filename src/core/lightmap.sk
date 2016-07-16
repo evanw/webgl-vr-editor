@@ -2,6 +2,7 @@ class Lightmap {
   const _texture GPU.Texture
   const _handleToCell IntMap<int> = {}
   const _cellToHandle IntMap<int> = {}
+  var _freeMapEntry fn(int, Handle) # Allocate this once to avoid accumulating garbage
   var _width = INITIAL_SIZE
   var _height = INITIAL_SIZE
   var _data = Uint8Array.new(INITIAL_SIZE * INITIAL_SIZE * SAMPLE_DENSITY * SAMPLE_DENSITY * 4)
@@ -13,6 +14,7 @@ class Lightmap {
 
   def new(context GPU.Context) {
     _texture = context.createTexture(.RGBA_LINEAR_CLAMP, INITIAL_SIZE * SAMPLE_DENSITY, INITIAL_SIZE * SAMPLE_DENSITY)
+    _freeMapEntry = (key, handle) => free(handle)
   }
 
   def texture GPU.Texture {
@@ -98,6 +100,10 @@ class Lightmap {
     assert(_freeCount <= _width * _height)
   }
 
+  def freeAll(map IntMap<Handle>) {
+    map.each(_freeMapEntry)
+  }
+
   def _grow {
     assert(_freeCount == 0)
 
@@ -145,8 +151,12 @@ class Lightmap {
 }
 
 namespace Lightmap {
-  type Handle = int
-
   const INITIAL_SIZE = 16
   const SAMPLE_DENSITY = 2
+
+  type Handle = int
+
+  namespace Handle {
+    const INVALID_VALUE = -1 as Handle
+  }
 }

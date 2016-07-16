@@ -233,24 +233,38 @@ namespace Voxels {
   }
 
   class Quad {
-    const x double
-    const y double
-    const z double
+    const x int
+    const y int
+    const z int
 
-    const ux double
-    const uy double
-    const uz double
+    const ux int
+    const uy int
+    const uz int
 
-    const vx double
-    const vy double
-    const vz double
+    const vx int
+    const vy int
+    const vz int
 
     const color Color
-    const handle Lightmap.Handle
+    var handle = Lightmap.Handle.INVALID_VALUE
+
+    # Returns a 32-bit integer that uniquely identifies a quad within a chunk
+    def id int {
+      assert(3 * CELLS_SHIFT + 2 * 4 <= 32)
+      return
+        # Pack chunk-local coordinates tightly together
+        (x & CELLS_MASK) |
+        (y & CELLS_MASK) << CELLS_SHIFT |
+        (z & CELLS_MASK) << (CELLS_SHIFT * 2) |
+
+        # Use 4 bits each for the orientation vectors (6 unique values)
+        ((ux ^ 2 * uy ^ 4 * uz) & 15) << (CELLS_SHIFT * 3) |
+        ((vx ^ 2 * vy ^ 4 * vz) & 15) << (CELLS_SHIFT * 3 + 4)
+    }
   }
 
   class Chunk {
-    const lightmap Lightmap
+    const _lightmap Lightmap
     const originX int
     const originY int
     const originZ int
@@ -265,6 +279,7 @@ namespace Voxels {
 
     var _cachedQuads List<Quad> = null
     var _cachedArea GPU.BufferArea = null
+    var _isInvalid = true
     var _generation = 0
 
     def get(localX int, localY int, localZ int) Cell {
@@ -296,21 +311,14 @@ namespace Voxels {
     }
 
     def _invalidate {
-      if _cachedQuads != null {
-        for quad in _cachedQuads {
-          lightmap.free(quad.handle)
-        }
-        _cachedQuads = null
-      }
-
+      _isInvalid = true
       _cachedArea?.free
       _cachedArea = null
     }
 
     def quads List<Quad> {
-      if _cachedQuads == null {
-        _cachedQuads = []
-
+      if _isInvalid {
+        var oldHandles IntMap<Lightmap.Handle> = {}
         var originX = self.originX
         var originY = self.originY
         var originZ = self.originZ
@@ -322,6 +330,15 @@ namespace Voxels {
         var zneg = self.zneg
         var zpos = self.zpos
         var i = 0
+
+        if _cachedQuads != null {
+          for quad in _cachedQuads {
+            oldHandles[quad.id] = quad.handle
+          }
+        }
+
+        _cachedQuads = []
+        _isInvalid = false
 
         for z in 0..CELLS_SIZE {
           for y in 0..CELLS_SIZE {
@@ -344,31 +361,45 @@ namespace Voxels {
                 var yposCell = y < MASK ? cells[i + SIZE]        as Cell : ypos != null ? ypos.cells[i ^ (MASK << SHIFT)]     as Cell : Cell.SOLID
                 var zposCell = z < MASK ? cells[i + SIZE * SIZE] as Cell : zpos != null ? zpos.cells[i ^ (MASK << 2 * SHIFT)] as Cell : Cell.SOLID
 
-                if xnegCell != .EMPTY { _appendQuad(globalX, globalY, globalZ + 1, 0, 0, -1, 0, 1, 0, xnegCell.color) }
-                if ynegCell != .EMPTY { _appendQuad(globalX, globalY, globalZ + 1, 1, 0, 0, 0, 0, -1, ynegCell.color) }
-                if znegCell != .EMPTY { _appendQuad(globalX, globalY, globalZ, 1, 0, 0, 0, 1, 0, znegCell.color) }
-                if xposCell != .EMPTY { _appendQuad(globalX + 1, globalY, globalZ, 0, 0, 1, 0, 1, 0, xposCell.color) }
-                if yposCell != .EMPTY { _appendQuad(globalX, globalY + 1, globalZ, 1, 0, 0, 0, 0, 1, yposCell.color) }
-                if zposCell != .EMPTY { _appendQuad(globalX + 1, globalY, globalZ + 1, -1, 0, 0, 0, 1, 0, zposCell.color) }
+                if xnegCell != .EMPTY { _appendQuad(globalX, globalY, globalZ + 1, 0, 0, -1, 0, 1, 0, xnegCell.color, oldHandles) }
+                if ynegCell != .EMPTY { _appendQuad(globalX, globalY, globalZ + 1, 1, 0, 0, 0, 0, -1, ynegCell.color, oldHandles) }
+                if znegCell != .EMPTY { _appendQuad(globalX, globalY, globalZ, 1, 0, 0, 0, 1, 0, znegCell.color, oldHandles) }
+                if xposCell != .EMPTY { _appendQuad(globalX + 1, globalY, globalZ, 0, 0, 1, 0, 1, 0, xposCell.color, oldHandles) }
+                if yposCell != .EMPTY { _appendQuad(globalX, globalY + 1, globalZ, 1, 0, 0, 0, 0, 1, yposCell.color, oldHandles) }
+                if zposCell != .EMPTY { _appendQuad(globalX + 1, globalY, globalZ + 1, -1, 0, 0, 0, 1, 0, zposCell.color, oldHandles) }
               }
 
               i++
             }
           }
         }
+
+        _lightmap.freeAll(oldHandles)
       }
 
       return _cachedQuads
     }
 
-    def _appendQuad(x double, y double, z double, ux double, uy double, uz double, vx double, vy double, vz double, color Color) {
-      _cachedQuads.append(Quad.new(x, y, z, ux, uy, uz, vx, vy, vz, color, lightmap.allocate(color)))
+    def _appendQuad(x int, y int, z int, ux int, uy int, uz int, vx int, vy int, vz int, color Color, oldHandles IntMap<Lightmap.Handle>) {
+      var quad = Quad.new(x, y, z, ux, uy, uz, vx, vy, vz, color)
+      var id = quad.id
+      var handle = oldHandles.get(id, .INVALID_VALUE)
+
+      # Try to preserve quad handles across chunk invalidations
+      if handle != .INVALID_VALUE {
+        quad.handle = handle
+        oldHandles.remove(id)
+      } else {
+        quad.handle = _lightmap.allocate(color)
+      }
+
+      _cachedQuads.append(quad)
     }
 
     def area(pool GPU.BufferPool) GPU.BufferArea {
       # Update texture coordinates when the lightmap changes size
-      if _generation != lightmap.generation {
-        _generation = lightmap.generation
+      if _generation != _lightmap.generation {
+        _generation = _lightmap.generation
         _cachedArea?.free
         _cachedArea = null
       }
@@ -376,7 +407,7 @@ namespace Voxels {
       if _cachedArea == null {
         _vertices.clear
 
-        var lightmap = self.lightmap
+        var lightmap = _lightmap
 
         for quad in quads {
           var x = quad.x
