@@ -237,29 +237,22 @@ namespace Voxels {
     const y int
     const z int
 
-    const ux int
-    const uy int
-    const uz int
-
-    const vx int
-    const vy int
-    const vz int
+    # 3 bits for (dx, dy, dz)
+    const u int
+    const v int
 
     const color Color
     var handle = Lightmap.Handle.INVALID_VALUE
 
     # Returns a 32-bit integer that uniquely identifies a quad within a chunk
     def id int {
-      assert(3 * CELLS_SHIFT + 2 * 4 <= 32)
+      assert(3 * CELLS_SHIFT + 2 * 3 <= 32)
       return
-        # Pack chunk-local coordinates tightly together
         (x & CELLS_MASK) |
         (y & CELLS_MASK) << CELLS_SHIFT |
         (z & CELLS_MASK) << (CELLS_SHIFT * 2) |
-
-        # Use 4 bits each for the orientation vectors (6 unique values)
-        ((ux ^ 2 * uy ^ 4 * uz) & 15) << (CELLS_SHIFT * 3) |
-        ((vx ^ 2 * vy ^ 4 * vz) & 15) << (CELLS_SHIFT * 3 + 4)
+        u << (CELLS_SHIFT * 3) |
+        v << (CELLS_SHIFT * 3 + 3)
     }
   }
 
@@ -361,12 +354,12 @@ namespace Voxels {
                 var yposCell = y < MASK ? cells[i + SIZE]        as Cell : ypos != null ? ypos.cells[i ^ (MASK << SHIFT)]     as Cell : Cell.SOLID
                 var zposCell = z < MASK ? cells[i + SIZE * SIZE] as Cell : zpos != null ? zpos.cells[i ^ (MASK << 2 * SHIFT)] as Cell : Cell.SOLID
 
-                if xnegCell != .EMPTY { _appendQuad(globalX, globalY, globalZ + 1, 0, 0, -1, 0, 1, 0, xnegCell.color, oldHandles) }
-                if ynegCell != .EMPTY { _appendQuad(globalX, globalY, globalZ + 1, 1, 0, 0, 0, 0, -1, ynegCell.color, oldHandles) }
-                if znegCell != .EMPTY { _appendQuad(globalX, globalY, globalZ, 1, 0, 0, 0, 1, 0, znegCell.color, oldHandles) }
-                if xposCell != .EMPTY { _appendQuad(globalX + 1, globalY, globalZ, 0, 0, 1, 0, 1, 0, xposCell.color, oldHandles) }
-                if yposCell != .EMPTY { _appendQuad(globalX, globalY + 1, globalZ, 1, 0, 0, 0, 0, 1, yposCell.color, oldHandles) }
-                if zposCell != .EMPTY { _appendQuad(globalX + 1, globalY, globalZ + 1, -1, 0, 0, 0, 1, 0, zposCell.color, oldHandles) }
+                if xnegCell != .EMPTY { _appendQuad(globalX, globalY, globalZ, 2, 4, xnegCell.color, oldHandles) }
+                if ynegCell != .EMPTY { _appendQuad(globalX, globalY, globalZ, 4, 1, ynegCell.color, oldHandles) }
+                if znegCell != .EMPTY { _appendQuad(globalX, globalY, globalZ, 1, 2, znegCell.color, oldHandles) }
+                if xposCell != .EMPTY { _appendQuad(globalX + 1, globalY, globalZ, 4, 2, xposCell.color, oldHandles) }
+                if yposCell != .EMPTY { _appendQuad(globalX, globalY + 1, globalZ, 1, 4, yposCell.color, oldHandles) }
+                if zposCell != .EMPTY { _appendQuad(globalX, globalY, globalZ + 1, 2, 1, zposCell.color, oldHandles) }
               }
 
               i++
@@ -380,8 +373,11 @@ namespace Voxels {
       return _cachedQuads
     }
 
-    def _appendQuad(x int, y int, z int, ux int, uy int, uz int, vx int, vy int, vz int, color Color, oldHandles IntMap<Lightmap.Handle>) {
-      var quad = Quad.new(x, y, z, ux, uy, uz, vx, vy, vz, color)
+    def _appendQuad(x int, y int, z int, u int, v int, color Color, oldHandles IntMap<Lightmap.Handle>) {
+      assert(u == 1 || u == 2 || u == 4)
+      assert(v == 1 || v == 2 || v == 4)
+
+      var quad = Quad.new(x, y, z, u, v, color)
       var id = quad.id
       var handle = oldHandles.get(id, .INVALID_VALUE)
 
@@ -413,14 +409,16 @@ namespace Voxels {
           var x = quad.x
           var y = quad.y
           var z = quad.z
+          var u = quad.u
+          var v = quad.v
 
-          var ux = quad.ux
-          var uy = quad.uy
-          var uz = quad.uz
+          var ux = u & 1
+          var uy = u >> 1 & 1
+          var uz = u >> 2
 
-          var vx = quad.vx
-          var vy = quad.vy
-          var vz = quad.vz
+          var vx = v & 1
+          var vy = v >> 1 & 1
+          var vz = v >> 2
 
           var uvx = x + ux + vx
           var uvy = y + uy + vy
