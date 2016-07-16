@@ -34,6 +34,7 @@ class Voxels {
   const _context GPU.Context
   const _material GPU.Material
   const _pool GPU.BufferPool
+  const _lightmap Lightmap
   const _chunkMap IntMap<Chunk> = {}
   const _chunkList List<Chunk> = []
 
@@ -52,7 +53,7 @@ class Voxels {
         return
       }
 
-      chunk = Chunk.new(x & ~CELLS_MASK, y & ~CELLS_MASK, z & ~CELLS_MASK)
+      chunk = Chunk.new(_lightmap, x & ~CELLS_MASK, y & ~CELLS_MASK, z & ~CELLS_MASK)
 
       var xneg = map.get(_key(x - CELLS_SIZE, y, z), null)
       var xpos = map.get(_key(x + CELLS_SIZE, y, z), null)
@@ -123,6 +124,15 @@ class Voxels {
   }
 
   def draw {
+    # Allocate all quads first, may invalidate the lightmap
+    for chunk in _chunkList {
+      chunk.quads
+    }
+
+    # Upload the texture now that lightmap invalidation is done
+    _material.setUniformSampler(GLSLX_NAME_TEXTURE, _lightmap.texture, 0)
+
+    # Allocate all areas next, won't invalidate the lightmap
     for chunk in _chunkList {
       _context.draw(.TRIANGLES, _material, chunk.area(_pool))
     }
@@ -236,9 +246,11 @@ namespace Voxels {
     const vz double
 
     const color Color
+    const handle Lightmap.Handle
   }
 
   class Chunk {
+    const lightmap Lightmap
     const originX int
     const originY int
     const originZ int
@@ -253,6 +265,7 @@ namespace Voxels {
 
     var _cachedQuads List<Quad> = null
     var _cachedArea GPU.BufferArea = null
+    var _generation = 0
 
     def get(localX int, localY int, localZ int) Cell {
       assert(0 <= localX && localX < CELLS_SIZE)
@@ -283,14 +296,21 @@ namespace Voxels {
     }
 
     def _invalidate {
+      if _cachedQuads != null {
+        for quad in _cachedQuads {
+          lightmap.free(quad.handle)
+        }
+        _cachedQuads = null
+      }
+
       _cachedArea?.free
-      _cachedQuads = null
       _cachedArea = null
     }
 
     def quads List<Quad> {
       if _cachedQuads == null {
-        var quads List<Quad> = []
+        _cachedQuads = []
+
         var originX = self.originX
         var originY = self.originY
         var originZ = self.originZ
@@ -324,28 +344,39 @@ namespace Voxels {
                 var yposCell = y < MASK ? cells[i + SIZE]        as Cell : ypos != null ? ypos.cells[i ^ (MASK << SHIFT)]     as Cell : Cell.SOLID
                 var zposCell = z < MASK ? cells[i + SIZE * SIZE] as Cell : zpos != null ? zpos.cells[i ^ (MASK << 2 * SHIFT)] as Cell : Cell.SOLID
 
-                if xnegCell != .EMPTY { quads.append(Quad.new(globalX, globalY, globalZ + 1, 0, 0, -1, 0, 1, 0, xnegCell.color)) }
-                if ynegCell != .EMPTY { quads.append(Quad.new(globalX, globalY, globalZ + 1, 1, 0, 0, 0, 0, -1, ynegCell.color)) }
-                if znegCell != .EMPTY { quads.append(Quad.new(globalX, globalY, globalZ, 1, 0, 0, 0, 1, 0, znegCell.color)) }
-                if xposCell != .EMPTY { quads.append(Quad.new(globalX + 1, globalY, globalZ, 0, 0, 1, 0, 1, 0, xposCell.color)) }
-                if yposCell != .EMPTY { quads.append(Quad.new(globalX, globalY + 1, globalZ, 1, 0, 0, 0, 0, 1, yposCell.color)) }
-                if zposCell != .EMPTY { quads.append(Quad.new(globalX + 1, globalY, globalZ + 1, -1, 0, 0, 0, 1, 0, zposCell.color)) }
+                if xnegCell != .EMPTY { _appendQuad(globalX, globalY, globalZ + 1, 0, 0, -1, 0, 1, 0, xnegCell.color) }
+                if ynegCell != .EMPTY { _appendQuad(globalX, globalY, globalZ + 1, 1, 0, 0, 0, 0, -1, ynegCell.color) }
+                if znegCell != .EMPTY { _appendQuad(globalX, globalY, globalZ, 1, 0, 0, 0, 1, 0, znegCell.color) }
+                if xposCell != .EMPTY { _appendQuad(globalX + 1, globalY, globalZ, 0, 0, 1, 0, 1, 0, xposCell.color) }
+                if yposCell != .EMPTY { _appendQuad(globalX, globalY + 1, globalZ, 1, 0, 0, 0, 0, 1, yposCell.color) }
+                if zposCell != .EMPTY { _appendQuad(globalX + 1, globalY, globalZ + 1, -1, 0, 0, 0, 1, 0, zposCell.color) }
               }
 
               i++
             }
           }
         }
-
-        _cachedQuads = quads
       }
 
       return _cachedQuads
     }
 
+    def _appendQuad(x double, y double, z double, ux double, uy double, uz double, vx double, vy double, vz double, color Color) {
+      _cachedQuads.append(Quad.new(x, y, z, ux, uy, uz, vx, vy, vz, color, lightmap.allocate(color)))
+    }
+
     def area(pool GPU.BufferPool) GPU.BufferArea {
+      # Update texture coordinates when the lightmap changes size
+      if _generation != lightmap.generation {
+        _generation = lightmap.generation
+        _cachedArea?.free
+        _cachedArea = null
+      }
+
       if _cachedArea == null {
         _vertices.clear
+
+        var lightmap = self.lightmap
 
         for quad in quads {
           var x = quad.x
@@ -364,50 +395,50 @@ namespace Voxels {
           var uvy = y + uy + vy
           var uvz = z + uz + vz
 
+          var cell = lightmap.handleToCell(quad.handle)
+          var s0 = lightmap.cellLeft(cell)
+          var t0 = lightmap.cellTop(cell)
+          var s1 = lightmap.cellRight(cell)
+          var t1 = lightmap.cellBottom(cell)
+
           _vertices.appendFloat(x)
           _vertices.appendFloat(y)
           _vertices.appendFloat(z)
-          _vertices.appendFloat(0)
-          _vertices.appendFloat(0)
-          _vertices.appendColor(quad.color)
+          _vertices.appendFloat(s0)
+          _vertices.appendFloat(t0)
 
           _vertices.appendFloat(x + ux)
           _vertices.appendFloat(y + uy)
           _vertices.appendFloat(z + uz)
-          _vertices.appendFloat(1)
-          _vertices.appendFloat(0)
-          _vertices.appendColor(quad.color)
+          _vertices.appendFloat(s1)
+          _vertices.appendFloat(t0)
 
           _vertices.appendFloat(uvx)
           _vertices.appendFloat(uvy)
           _vertices.appendFloat(uvz)
-          _vertices.appendFloat(1)
-          _vertices.appendFloat(1)
-          _vertices.appendColor(quad.color)
+          _vertices.appendFloat(s1)
+          _vertices.appendFloat(t1)
 
           _vertices.appendFloat(x)
           _vertices.appendFloat(y)
           _vertices.appendFloat(z)
-          _vertices.appendFloat(0)
-          _vertices.appendFloat(0)
-          _vertices.appendColor(quad.color)
+          _vertices.appendFloat(s0)
+          _vertices.appendFloat(t0)
 
           _vertices.appendFloat(uvx)
           _vertices.appendFloat(uvy)
           _vertices.appendFloat(uvz)
-          _vertices.appendFloat(1)
-          _vertices.appendFloat(1)
-          _vertices.appendColor(quad.color)
+          _vertices.appendFloat(s1)
+          _vertices.appendFloat(t1)
 
           _vertices.appendFloat(x + vx)
           _vertices.appendFloat(y + vy)
           _vertices.appendFloat(z + vz)
-          _vertices.appendFloat(0)
-          _vertices.appendFloat(1)
-          _vertices.appendColor(quad.color)
+          _vertices.appendFloat(s0)
+          _vertices.appendFloat(t1)
         }
 
-        _cachedArea = pool.allocate(GPU.VertexFormat.POSITION_F3_COORD_F2_COLOR_B4, _vertices.bytes)
+        _cachedArea = pool.allocate(GPU.VertexFormat.POSITION_F3_COORD_F2, _vertices.bytes)
       }
 
       return _cachedArea

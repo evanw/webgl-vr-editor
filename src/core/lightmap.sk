@@ -1,0 +1,152 @@
+class Lightmap {
+  const _texture GPU.Texture
+  const _handleToCell IntMap<int> = {}
+  const _cellToHandle IntMap<int> = {}
+  var _width = INITIAL_SIZE
+  var _height = INITIAL_SIZE
+  var _data = Uint8Array.new(INITIAL_SIZE * INITIAL_SIZE * SAMPLE_DENSITY * SAMPLE_DENSITY * 4)
+  var _generation = 0
+  var _nextCell = 0
+  var _nextHandle = 0
+  var _freeCount = INITIAL_SIZE * INITIAL_SIZE
+  var _needsTextureUpload = false
+
+  def new(context GPU.Context) {
+    _texture = context.createTexture(.RGBA_LINEAR_CLAMP, INITIAL_SIZE * SAMPLE_DENSITY, INITIAL_SIZE * SAMPLE_DENSITY)
+  }
+
+  def texture GPU.Texture {
+    if _needsTextureUpload {
+      _texture.resize(_width * SAMPLE_DENSITY, _height * SAMPLE_DENSITY, _data)
+      _needsTextureUpload = false
+    }
+    return _texture
+  }
+
+  # When the generation changes, the texture has been resized and texture coordinates need to be computed again
+  def generation int {
+    return _generation
+  }
+
+  def handleToCell(handle Handle) int {
+    return _handleToCell[handle as int]
+  }
+
+  def cellLeft(cell int) double {
+    return (cell % _width + 0.5 / SAMPLE_DENSITY) / _width
+  }
+
+  def cellTop(cell int) double {
+    return 1 - (cell / _width + 0.5 / SAMPLE_DENSITY) / _height
+  }
+
+  def cellRight(cell int) double {
+    return (cell % _width + (1 - 0.5 / SAMPLE_DENSITY)) / _width
+  }
+
+  def cellBottom(cell int) double {
+    return 1 - (cell / _width + (1 - 0.5 / SAMPLE_DENSITY)) / _height
+  }
+
+  def allocate(color Color) Handle {
+    if _freeCount == 0 {
+      _grow
+    }
+
+    const wrap = _width * _height
+
+    # Skip over used cells
+    while _nextCell in _cellToHandle {
+      _nextCell = (_nextCell + 1) % wrap
+    }
+
+    const handle = _nextHandle
+    const cell = _nextCell
+    const data = _data
+    const skip = (_width - 1) * (SAMPLE_DENSITY * 4)
+    const cellX = cell % _width
+    var index = (cellX + (cell - cellX) * SAMPLE_DENSITY) * (SAMPLE_DENSITY * 4)
+
+    # Allocate a new cell
+    _handleToCell[handle] = cell
+    _cellToHandle[cell] = handle
+    _needsTextureUpload = true
+    _nextCell = (_nextCell + 1) % wrap
+    _nextHandle++
+    _freeCount--
+
+    # Populate the cell data
+    for y in 0..SAMPLE_DENSITY {
+      for x in 0..SAMPLE_DENSITY {
+        data[index] = color.red
+        data[index + 1] = color.green
+        data[index + 2] = color.blue
+        data[index + 3] = color.alpha
+        index += 4
+      }
+      index += skip
+    }
+
+    return handle as Handle
+  }
+
+  def free(handle Handle) {
+    var cell = _handleToCell[handle as int]
+    _handleToCell.remove(handle as int)
+    _cellToHandle.remove(cell)
+    _freeCount++
+    assert(_freeCount <= _width * _height)
+  }
+
+  def _grow {
+    assert(_freeCount == 0)
+
+    var oldWidth = _width
+    var oldHeight = _height
+    var oldSkip = (oldWidth - 1) * (SAMPLE_DENSITY * 4)
+    var oldData = _data
+
+    # Grow in powers of 2
+    if oldWidth <= oldHeight {
+      _width = oldWidth * 2
+    } else {
+      _height = oldHeight * 2
+    }
+
+    var newWidth = _width
+    var newHeight = _height
+    var newSkip = (newWidth - 1) * (SAMPLE_DENSITY * 4)
+    var newData = Uint8Array.new(newWidth * newHeight * (SAMPLE_DENSITY * SAMPLE_DENSITY * 4))
+
+    for cell in 0..oldWidth * oldHeight {
+      var oldCellX = cell % oldWidth
+      var newCellX = cell % newWidth
+      var oldIndex = (oldCellX + (cell - oldCellX) * SAMPLE_DENSITY) * (SAMPLE_DENSITY * 4)
+      var newIndex = (newCellX + (cell - newCellX) * SAMPLE_DENSITY) * (SAMPLE_DENSITY * 4)
+
+      for y in 0..SAMPLE_DENSITY {
+        for x in 0..SAMPLE_DENSITY * 4 {
+          newData[newIndex] = oldData[oldIndex]
+          oldIndex++
+          newIndex++
+        }
+
+        oldIndex += oldSkip
+        newIndex += newSkip
+      }
+    }
+
+    # Carry over the old data
+    _data = newData
+    _generation++
+    _needsTextureUpload = true
+    _freeCount += newWidth * newHeight - oldWidth * oldHeight
+  }
+}
+
+namespace Lightmap {
+  type Handle = int
+
+  const INITIAL_SIZE = 16
+  const SAMPLE_DENSITY = 2
+}

@@ -37,18 +37,19 @@ class App :: HeadsetDelegate {
   const _context GPU.Context
   const _pool GPU.BufferPool
   const _fontTexture GPU.Texture
-  const _surfaceMaterial GPU.Material
+  const _textureMaterial GPU.Material
   const _colorTextureMaterial GPU.Material
+  const _font Font
+  const _voxels Voxels
+  const _lightmap Lightmap
+
   const _modelview = Matrix.new
   const _orientation = Matrix.new
   const _traceResult = TraceResult.new
 
   var _googleCardboardheadset GoogleCardboardHeadset = null
   var _passThroughHeadset PassThroughHeadset = null
-
-  var _font Font = null
   var _headset Headset = null
-  var _voxels Voxels = null
 
   var _hasDeviceOrientation = false
   var _headsetButtonState = false
@@ -92,11 +93,12 @@ class App :: HeadsetDelegate {
   def new(context GPU.Context) {
     _context = context
     _pool = GPU.BufferPool.new(context)
-    _surfaceMaterial = context.createMaterial(.POSITION_F3_COORD_F2_COLOR_B4, GLSLX_SOURCE_SURFACE_VERTEX, GLSLX_SOURCE_SURFACE_FRAGMENT)
+    _textureMaterial = context.createMaterial(.POSITION_F3_COORD_F2, GLSLX_SOURCE_TEXTURE_VERTEX, GLSLX_SOURCE_TEXTURE_FRAGMENT)
     _colorTextureMaterial = context.createMaterial(.POSITION_F3_COORD_F2_COLOR_B4, GLSLX_SOURCE_COLOR_TEXTURE_VERTEX, GLSLX_SOURCE_COLOR_TEXTURE_FRAGMENT)
     _fontTexture = context.createTextureFromURL(.RGBA_LINEAR_MIPMAP_LINEAR_REPEAT, "images/berlin_sans.png")
     _passThroughHeadset = PassThroughHeadset.new(context, self)
-    _voxels = Voxels.new(context, _surfaceMaterial, _pool)
+    _lightmap = Lightmap.new(context)
+    _voxels = Voxels.new(context, _textureMaterial, _pool, _lightmap)
     _font = Font.new(context, _colorTextureMaterial, _pool, Font.BERLIN_SANS_GLYPH_TABLE, -0.07)
 
     var left = 0.0
@@ -133,8 +135,8 @@ class App :: HeadsetDelegate {
       .multiplyBy(_orientation)
       .translateBy(-_eyeX, -_eyeY, -_eyeZ)
 
-    _surfaceMaterial.setUniformMat4(GLSLX_NAME_MATRIX_MODELVIEW, _modelview)
-    _surfaceMaterial.setUniformMat4(GLSLX_NAME_MATRIX_PROJECTION, projection)
+    _textureMaterial.setUniformMat4(GLSLX_NAME_MATRIX_MODELVIEW, _modelview)
+    _textureMaterial.setUniformMat4(GLSLX_NAME_MATRIX_PROJECTION, projection)
     _voxels.draw
 
     _colorTextureMaterial.setUniformMat4(GLSLX_NAME_MATRIX_MODELVIEW, _modelview)
@@ -307,5 +309,6 @@ namespace App {
 
 namespace GPU.VertexFormat {
   const POSITION_F2 = VertexFormat.new.add(GLSLX_NAME_POSITION2, .FLOAT, 2)
+  const POSITION_F3_COORD_F2 = VertexFormat.new.add(GLSLX_NAME_POSITION3, .FLOAT, 3).add(GLSLX_NAME_COORD2, .FLOAT, 2)
   const POSITION_F3_COORD_F2_COLOR_B4 = VertexFormat.new.add(GLSLX_NAME_POSITION3, .FLOAT, 3).add(GLSLX_NAME_COORD2, .FLOAT, 2).add(GLSLX_NAME_COLOR4, .BYTE, 4)
 }

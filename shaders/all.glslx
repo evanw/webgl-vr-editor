@@ -53,14 +53,13 @@ export void headsetFragment() {
     clamp(10.0 - 20.0 * max(abs(0.5 - s), abs(0.5 - t)), 0.0, 1.0);
 }
 
-export void surfaceVertex() {
+export void textureVertex() {
   _coord2 = coord2;
-  _color4 = color4;
   gl_Position = matrixProjection * matrixModelview * vec4(position3, 1);
 }
 
-export void surfaceFragment() {
-  gl_FragColor = _color4;
+export void textureFragment() {
+  gl_FragColor = texture2D(texture, _coord2);
 }
 
 export void colorTextureVertex() {

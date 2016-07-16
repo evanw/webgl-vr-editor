@@ -866,6 +866,8 @@ if TARGET == .JAVASCRIPT {
       }
 
       def resize(width int, height int, pixels Uint8Array) {
+        assert(pixels == null || pixels.length == width * height * 4)
+
         if width != _width || height != _height || pixels != null {
           _width = width
           _height = height
