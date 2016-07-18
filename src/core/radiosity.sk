@@ -1,0 +1,162 @@
+class Radiosity {
+  const _voxels Voxels
+  const _lights List<Light> = []
+  const _samples IntMap<Sample> = {}
+
+  def recordSample(x int, y int, z int, n Normal) {
+    var hash = _hash(x, y, z)
+    var sample = _samples.get(hash, null)
+
+    if sample == null {
+      _samples[hash] = sample = Sample.new(x, y, z)
+    }
+
+    sample.nx += n.x
+    sample.ny += n.y
+    sample.nz += n.z
+    sample.mask |= n
+  }
+
+  def recordLight(x double, y double, z double, n Normal, weight double) {
+    _lights.append(Light.new(x, y, z, n, weight))
+  }
+
+  def fetchSample(x int, y int, z int, n Normal) double {
+    var sample = _samples[_hash(x, y, z)]
+
+    switch n {
+      case .XNEG { return sample.xneg }
+      case .XPOS { return sample.xpos }
+      case .YNEG { return sample.yneg }
+      case .YPOS { return sample.ypos }
+      case .ZNEG { return sample.zneg }
+      case .ZPOS { return sample.zpos }
+    }
+
+    assert(false)
+    return 0
+  }
+
+  def runGatherPass {
+    const voxels = _voxels
+    const lights = _lights
+
+    for sample in _samples.values {
+      var snx = sample.nx
+      var sny = sample.ny
+      var snz = sample.nz
+      var sn = 1 / Math.sqrt(snx * snx + sny * sny + snz * snz)
+      snx *= sn
+      sny *= sn
+      snz *= sn
+
+      # Offset the sample by a bit so samples adjacent to a light aren't totally black
+      var sx = sample.x + snx * 0.1
+      var sy = sample.y + sny * 0.1
+      var sz = sample.z + snz * 0.1
+
+      var mask = sample.mask
+      var xneg = 0.0
+      var xpos = 0.0
+      var yneg = 0.0
+      var ypos = 0.0
+      var zneg = 0.0
+      var zpos = 0.0
+
+      for light in lights {
+        var lx = light.x
+        var ly = light.y
+        var lz = light.z
+        var ln = light.n
+
+        var dx = lx - sx
+        var dy = ly - sy
+        var dz = lz - sz
+
+        # Early-out if we're behind the light
+        var ldot = -ln.x * dx - ln.y * dy - ln.z * dz
+        if ldot < 0 {
+          continue
+        }
+
+        # Do one division here so multiplies can be used later for speed
+        var d2 = 1 / (dx * dx + dy * dy + dz * dz)
+        var d = Math.sqrt(d2)
+
+        # Convert the delta to a unit vector
+        dx *= d
+        dy *= d
+        dz *= d
+
+        # Check for occlusion between the sample and the light
+        if !voxels.trace(sx, sy, sz, dx, dy, dz, _result) || _result.distance * d < 1 {
+          continue
+        }
+
+        # Normalize the dot product and include the quadratic falloff
+        var transfer = light.weight * ldot * d * d2
+
+        # Accumulate light using the transfer function between patches
+        if .XNEG in mask && dx < 0 { xneg -= transfer * dx }
+        if .XPOS in mask && dx > 0 { xpos += transfer * dx }
+        if .YNEG in mask && dy < 0 { yneg -= transfer * dy }
+        if .YPOS in mask && dy > 0 { ypos += transfer * dy }
+        if .ZNEG in mask && dz < 0 { zneg -= transfer * dz }
+        if .ZPOS in mask && dz > 0 { zpos += transfer * dz }
+      }
+
+      sample.xneg = xneg
+      sample.xpos = xpos
+      sample.yneg = yneg
+      sample.ypos = ypos
+      sample.zneg = zneg
+      sample.zpos = zpos
+    }
+  }
+}
+
+namespace Radiosity {
+  const BITS_X = 11
+  const BITS_Y = 10
+  const BITS_Z = 11
+
+  const MASK_X = (1 << BITS_X) - 1
+  const MASK_Y = (1 << BITS_Y) - 1
+  const MASK_Z = (1 << BITS_Z) - 1
+
+  const _result = TraceResult.new
+
+  class Sample {
+    const x int
+    const y int
+    const z int
+
+    var nx = 0.0
+    var ny = 0.0
+    var nz = 0.0
+    var mask Normal = 0
+
+    var xneg = 0.0
+    var xpos = 0.0
+    var yneg = 0.0
+    var ypos = 0.0
+    var zneg = 0.0
+    var zpos = 0.0
+  }
+
+  class Light {
+    const x double
+    const y double
+    const z double
+
+    const n Normal
+    const weight double
+  }
+
+  def _hash(x int, y int, z int) int {
+    return
+      x & MASK_X |
+      (y & MASK_Y) << BITS_X |
+      (z & MASK_Z) << (BITS_X + BITS_Y)
+  }
+}

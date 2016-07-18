@@ -16,7 +16,7 @@ namespace Cell {
     Color.TRANSPARENT,
     Color.WHITE,
     Color.new(191, 0, 0),
-    Color.new(0, 0, 191),
+    Color.new(0, 0, 223),
   ]
 }
 
@@ -28,6 +28,54 @@ class TraceResult {
   var normalY = 0
   var normalZ = 0
   var distance = 0.0
+}
+
+type Delta : int {
+  def x int {
+    return self as int & 1
+  }
+
+  def y int {
+    return self as int >> 1 & 1
+  }
+
+  def z int {
+    return self as int >> 2
+  }
+}
+
+namespace Delta {
+  const X = new(1, 0, 0)
+  const Y = new(0, 1, 0)
+  const Z = new(0, 0, 1)
+
+  def new(x int, y int, z int) Delta {
+    assert(x == 0 || x == 1)
+    assert(y == 0 || y == 1)
+    assert(z == 0 || z == 1)
+    return (x | y << 1 | z << 2) as Delta
+  }
+}
+
+flags Normal {
+  XNEG
+  XPOS
+  YNEG
+  YPOS
+  ZNEG
+  ZPOS
+
+  def x int {
+    return (self == XPOS) as int - (self == XNEG) as int
+  }
+
+  def y int {
+    return (self == YPOS) as int - (self == YNEG) as int
+  }
+
+  def z int {
+    return (self == ZPOS) as int - (self == ZNEG) as int
+  }
 }
 
 class Voxels {
@@ -139,21 +187,21 @@ class Voxels {
   }
 
   def trace(x double, y double, z double, rayX double, rayY double, rayZ double, result TraceResult) bool {
-    result.cellX = Math.floor(x) as int
-    result.cellY = Math.floor(y) as int
-    result.cellZ = Math.floor(z) as int
+    var cellX = result.cellX = Math.floor(x) as int
+    var cellY = result.cellY = Math.floor(y) as int
+    var cellZ = result.cellZ = Math.floor(z) as int
 
     result.normalX = 0
     result.normalY = 0
     result.normalZ = 0
 
-    const floorX = (result.cellX - x) / rayX
-    const floorY = (result.cellY - y) / rayY
-    const floorZ = (result.cellZ - z) / rayZ
+    const floorX = (cellX - x) / rayX
+    const floorY = (cellY - y) / rayY
+    const floorZ = (cellZ - z) / rayZ
 
-    const ceilX = (Math.ceil(x) - x) / rayX
-    const ceilY = (Math.ceil(y) - y) / rayY
-    const ceilZ = (Math.ceil(z) - z) / rayZ
+    const ceilX = (cellX + 1 - x) / rayX
+    const ceilY = (cellY + 1 - y) / rayY
+    const ceilZ = (cellZ + 1 - z) / rayZ
 
     const stepX = rayX > 0 ? 1 : rayX < 0 ? -1 : 0
     const stepY = rayY > 0 ? 1 : rayY < 0 ? -1 : 0
@@ -163,13 +211,15 @@ class Voxels {
     const deltaY = stepY / rayY
     const deltaZ = stepZ / rayZ
 
-    var maxX = Math.max(floorX, ceilX)
-    var maxY = Math.max(floorY, ceilY)
-    var maxZ = Math.max(floorZ, ceilZ)
+    var maxX = floorX > ceilX ? floorX : ceilX
+    var maxY = floorY > ceilY ? floorY : ceilY
+    var maxZ = floorZ > ceilZ ? floorZ : ceilZ
     var axis = 0
 
-    for i in 0..100 {
-      result.distance = Math.min(maxX, maxY, maxZ)
+    for i in 0..1000 {
+      result.distance = maxX < maxY
+        ? maxX < maxZ ? maxX : maxZ
+        : maxY < maxZ ? maxY : maxZ
 
       if result.distance == maxX {
         result.cellX += stepX
@@ -198,6 +248,95 @@ class Voxels {
     }
 
     return false
+  }
+
+  def stepRadiosity {
+    var radiosity = Radiosity.new(self)
+    var quads List<Quad> = []
+
+    # Do all lightmap invalidation ahead of time
+    for chunk in _chunkList {
+      for quad in chunk.quads {
+        var x = quad.x
+        var y = quad.y
+        var z = quad.z
+
+        var u = quad.u
+        var v = quad.v
+        var n = quad.n
+
+        var ux = u.x
+        var uy = u.y
+        var uz = u.z
+
+        var vx = v.x
+        var vy = v.y
+        var vz = v.z
+
+        assert(Lightmap.SAMPLE_DENSITY == 2)
+
+        # Accumulate normals even for emissive lights so that samples on boundary quads have enough epsilon offset
+        radiosity.recordSample(x, y, z, n)
+        radiosity.recordSample(x + ux, y + uy, z + uz, n)
+        radiosity.recordSample(x + vx, y + vy, z + vz, n)
+        radiosity.recordSample(x + ux + vx, y + uy + vy, z + uz + vz, n)
+
+        if quad.color == .WHITE {
+          radiosity.recordLight(
+            quad.x + (ux + vx) * 0.5 + n.x * 0.01,
+            quad.y + (uy + vy) * 0.5 + n.y * 0.01,
+            quad.z + (uz + vz) * 0.5 + n.z * 0.01,
+            n, 1)
+        }
+
+        else {
+          quads.append(quad)
+        }
+      }
+    }
+
+    # Run all samples at once (samples are shared across quads for efficiency)
+    radiosity.runGatherPass
+
+    var lightmap = _lightmap
+    var width = lightmap.currentWidth
+    var data = lightmap.currentData
+    var stride = width * (Lightmap.SAMPLE_DENSITY * 4)
+
+    # Read out radiosity results
+    for quad in quads {
+      var x = quad.x
+      var y = quad.y
+      var z = quad.z
+
+      var u = quad.u
+      var v = quad.v
+      var n = quad.n
+
+      var ux = u.x
+      var uy = u.y
+      var uz = u.z
+
+      var vx = v.x
+      var vy = v.y
+      var vz = v.z
+
+      var sample00 = radiosity.fetchSample(x, y, z, n)
+      var sample10 = radiosity.fetchSample(x + ux, y + uy, z + uz, n)
+      var sample01 = radiosity.fetchSample(x + vx, y + vy, z + vz, n)
+      var sample11 = radiosity.fetchSample(x + ux + vx, y + uy + vy, z + uz + vz, n)
+
+      var cell = lightmap.handleToCell(quad.handle)
+      var cellX = cell % width
+      var index = (cellX + (cell - cellX) * Lightmap.SAMPLE_DENSITY) * (Lightmap.SAMPLE_DENSITY * 4)
+      var color = quad.color
+
+      assert(Lightmap.SAMPLE_DENSITY == 2)
+      _writeSample(data, index, sample00, color)
+      _writeSample(data, index + 4, sample10, color)
+      _writeSample(data, index + stride, sample01, color)
+      _writeSample(data, index + stride + 4, sample11, color)
+    }
   }
 }
 
@@ -232,14 +371,25 @@ namespace Voxels {
       (cellZ >> CELLS_SHIFT & CHUNK_MASK_Z) << (CHUNK_BITS_X + CHUNK_BITS_Y)
   }
 
+  def _writeSample(data Uint8Array, index int, sample double, color Color) {
+    var colorR = (sample * color.red) as int
+    var colorG = (sample * color.green) as int
+    var colorB = (sample * color.blue) as int
+
+    data[index]     = colorR < 255 ? colorR : 255
+    data[index + 1] = colorG < 255 ? colorG : 255
+    data[index + 2] = colorB < 255 ? colorB : 255
+    data[index + 3] = 255
+  }
+
   class Quad {
     const x int
     const y int
     const z int
 
-    # 3 bits for (dx, dy, dz)
-    const u int
-    const v int
+    const u Delta
+    const v Delta
+    const n Normal
 
     const color Color
     var handle = Lightmap.Handle.INVALID_VALUE
@@ -251,8 +401,8 @@ namespace Voxels {
         (x & CELLS_MASK) |
         (y & CELLS_MASK) << CELLS_SHIFT |
         (z & CELLS_MASK) << (CELLS_SHIFT * 2) |
-        u << (CELLS_SHIFT * 3) |
-        v << (CELLS_SHIFT * 3 + 3)
+        u as int << (CELLS_SHIFT * 3) |
+        v as int << (CELLS_SHIFT * 3 + 3)
     }
   }
 
@@ -354,12 +504,12 @@ namespace Voxels {
                 var yposCell = y < MASK ? cells[i + SIZE]        as Cell : ypos != null ? ypos.cells[i ^ (MASK << SHIFT)]     as Cell : Cell.SOLID
                 var zposCell = z < MASK ? cells[i + SIZE * SIZE] as Cell : zpos != null ? zpos.cells[i ^ (MASK << 2 * SHIFT)] as Cell : Cell.SOLID
 
-                if xnegCell != .EMPTY { _appendQuad(globalX, globalY, globalZ, 2, 4, xnegCell.color, oldHandles) }
-                if ynegCell != .EMPTY { _appendQuad(globalX, globalY, globalZ, 4, 1, ynegCell.color, oldHandles) }
-                if znegCell != .EMPTY { _appendQuad(globalX, globalY, globalZ, 1, 2, znegCell.color, oldHandles) }
-                if xposCell != .EMPTY { _appendQuad(globalX + 1, globalY, globalZ, 4, 2, xposCell.color, oldHandles) }
-                if yposCell != .EMPTY { _appendQuad(globalX, globalY + 1, globalZ, 1, 4, yposCell.color, oldHandles) }
-                if zposCell != .EMPTY { _appendQuad(globalX, globalY, globalZ + 1, 2, 1, zposCell.color, oldHandles) }
+                if xnegCell != .EMPTY { _appendQuad(globalX, globalY, globalZ, .Y, .Z, .XPOS, xnegCell.color, oldHandles) }
+                if ynegCell != .EMPTY { _appendQuad(globalX, globalY, globalZ, .Z, .X, .YPOS, ynegCell.color, oldHandles) }
+                if znegCell != .EMPTY { _appendQuad(globalX, globalY, globalZ, .X, .Y, .ZPOS, znegCell.color, oldHandles) }
+                if xposCell != .EMPTY { _appendQuad(globalX + 1, globalY, globalZ, .Z, .Y, .XNEG, xposCell.color, oldHandles) }
+                if yposCell != .EMPTY { _appendQuad(globalX, globalY + 1, globalZ, .X, .Z, .YNEG, yposCell.color, oldHandles) }
+                if zposCell != .EMPTY { _appendQuad(globalX, globalY, globalZ + 1, .Y, .X, .ZNEG, zposCell.color, oldHandles) }
               }
 
               i++
@@ -373,11 +523,8 @@ namespace Voxels {
       return _cachedQuads
     }
 
-    def _appendQuad(x int, y int, z int, u int, v int, color Color, oldHandles IntMap<Lightmap.Handle>) {
-      assert(u == 1 || u == 2 || u == 4)
-      assert(v == 1 || v == 2 || v == 4)
-
-      var quad = Quad.new(x, y, z, u, v, color)
+    def _appendQuad(x int, y int, z int, u Delta, v Delta, n Normal, color Color, oldHandles IntMap<Lightmap.Handle>) {
+      var quad = Quad.new(x, y, z, u, v, n, color)
       var id = quad.id
       var handle = oldHandles.get(id, .INVALID_VALUE)
 
@@ -409,16 +556,17 @@ namespace Voxels {
           var x = quad.x
           var y = quad.y
           var z = quad.z
+
           var u = quad.u
           var v = quad.v
 
-          var ux = u & 1
-          var uy = u >> 1 & 1
-          var uz = u >> 2
+          var ux = u.x
+          var uy = u.y
+          var uz = u.z
 
-          var vx = v & 1
-          var vy = v >> 1 & 1
-          var vz = v >> 2
+          var vx = v.x
+          var vy = v.y
+          var vz = v.z
 
           var uvx = x + ux + vx
           var uvy = y + uy + vy

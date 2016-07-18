@@ -74,7 +74,7 @@ class App :: HeadsetDelegate {
   var _deviceGammaRate = 0.0
 
   var _eyeX = 0.5
-  var _eyeY = 0.5
+  var _eyeY = 1.5
   var _eyeZ = 0.5
 
   var _keyboardVelocityX = 0.0
@@ -111,11 +111,21 @@ class App :: HeadsetDelegate {
     for x in -8..9 {
       for y in -8..9 {
         for z in -8..9 {
-          _voxels.set(x, y, z, x * x + y * y + z * z < 8 * 8 ? .EMPTY :
-            y == 8 ? .EMISSIVE : x == -8 ? .RED : x == 8 ? .BLUE : .SOLID)
+          _voxels.set(x, y, z, x * x + y * y + z * z < 8 * 8
+            ? y == 0 && (-1 <= x && x <= 1 || -1 <= z && z <= 1) ? .SOLID : .EMPTY
+            : y == 8 ? .EMISSIVE
+            : x == -8 ? .RED
+            : x == 8 ? .BLUE
+            : .SOLID)
         }
       }
     }
+
+    _voxels.stepRadiosity
+  }
+
+  def bakeLightmap {
+    _voxels.stepRadiosity
   }
 
   def activeTool Tool {
@@ -309,6 +319,7 @@ namespace App {
 
 namespace GPU.VertexFormat {
   const POSITION_F2 = VertexFormat.new.add(GLSLX_NAME_POSITION2, .FLOAT, 2)
+  const POSITION_F3 = VertexFormat.new.add(GLSLX_NAME_POSITION3, .FLOAT, 3)
   const POSITION_F3_COORD_F2 = VertexFormat.new.add(GLSLX_NAME_POSITION3, .FLOAT, 3).add(GLSLX_NAME_COORD2, .FLOAT, 2)
   const POSITION_F3_COORD_F2_COLOR_B4 = VertexFormat.new.add(GLSLX_NAME_POSITION3, .FLOAT, 3).add(GLSLX_NAME_COORD2, .FLOAT, 2).add(GLSLX_NAME_COLOR4, .BYTE, 4)
 }

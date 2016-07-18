@@ -25,6 +25,19 @@ class Lightmap {
     return _texture
   }
 
+  def currentWidth int {
+    return _width
+  }
+
+  def currentHeight int {
+    return _height
+  }
+
+  def currentData Uint8Array {
+    _needsTextureUpload = true
+    return _data
+  }
+
   # When the generation changes, the texture has been resized and texture coordinates need to be computed again
   def generation int {
     return _generation

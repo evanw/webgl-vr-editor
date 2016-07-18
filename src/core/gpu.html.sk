@@ -164,7 +164,12 @@ if TARGET == .JAVASCRIPT {
         # Draw now that everything is ready
         _updateBlendState
         _updateDepthMode
-        _gl.drawArrays(primitive == .TRIANGLES ? _gl.TRIANGLES : _gl.TRIANGLE_STRIP, area.byteOffset / area.stride, area.byteCount / area.stride)
+        _gl.drawArrays(
+          primitive == .TRIANGLE_STRIP ? _gl.TRIANGLE_STRIP :
+          primitive == .LINES ? _gl.LINES :
+          _gl.TRIANGLES,
+          area.byteOffset / area.stride,
+          area.byteCount / area.stride)
 
         # Forced state updates are done once after a context loss
         _forceStateUpdate = false
