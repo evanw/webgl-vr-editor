@@ -1,9 +1,20 @@
+enum Eye {
+  CENTER
+  LEFT
+  RIGHT
+}
+
+enum Temporal {
+  RESET
+  CONTINUE
+}
+
 interface Headset {
-  def draw
+  def draw(temporal Temporal)
 }
 
 interface HeadsetDelegate {
-  def drawEye(offsetX double, projection Matrix)
+  def drawEye(eye Eye, projection Matrix, previousFrame GPU.Texture, temporalCount int)
 }
 
 class PassThroughHeadset :: Headset {
@@ -11,31 +22,35 @@ class PassThroughHeadset :: Headset {
   const _delegate HeadsetDelegate
   const _projection = Matrix.new
 
-  def draw {
+  def draw(temporal Temporal) {
     _context.clear(.ALL)
     _context.setDepthMode(.READ_WRITE)
-    _delegate.drawEye(0, _projection.createPerspective(60 * Math.PI / 180, _context.width / (_context.height as double), 0.1, 100))
+    _delegate.drawEye(.CENTER, _projection.createPerspective(60 * Math.PI / 180, _context.width / (_context.height as double), 0.1, 100), null, 0)
   }
 }
 
 class GoogleCardboardHeadset :: Headset {
   const _context GPU.Context
-  const _material GPU.Material
+  const _lensWarpMaterial GPU.Material
   const _quadArea GPU.BufferArea
   const _delegate HeadsetDelegate
-  const _colorTexture GPU.Texture
   const _depthStencilTexture GPU.Texture
-  const _textureSet GPU.TextureSet
   const _projectionLeft = Matrix.new
   const _projectionRight = Matrix.new
+  const _projection = Matrix.new
   var _viewer = LibGVR.ViewerData.DEFAULT
   var _device = LibGVR.DeviceData.IPHONE_6
+  var _temporalCount = 0
+  var _colorTexture GPU.Texture
+  var _textureSet GPU.TextureSet
+  var _temporalColorTexture GPU.Texture
 
   def new(context GPU.Context, pool GPU.BufferPool, delegate HeadsetDelegate) {
     _context = context
-    _material = context.createMaterial(.POSITION_F2, GLSLX_SOURCE_HEADSET_VERTEX, GLSLX_SOURCE_HEADSET_FRAGMENT)
+    _lensWarpMaterial = context.createMaterial(.POSITION_F2, GLSLX_SOURCE_LENS_WARP_VERTEX, GLSLX_SOURCE_LENS_WARP_FRAGMENT)
     _quadArea = pool.allocate(.POSITION_F2, [0, 0, 1, 0, 0, 1, 1, 1])
     _colorTexture = context.createTexture(.RGBA_LINEAR_CLAMP, 1, 1)
+    _temporalColorTexture = context.createTexture(.RGBA_LINEAR_CLAMP, 1, 1)
     _depthStencilTexture = context.createTexture(.DEPTH_STENCIL, 1, 1)
     _textureSet = context.createTextureSet(_colorTexture, _depthStencilTexture)
     _delegate = delegate
@@ -50,11 +65,10 @@ class GoogleCardboardHeadset :: Headset {
     var noLensFrustum = LibGVR.getLeftEyeNoLensTanAngles(viewer, device)
     var viewport = LibGVR.getLeftEyeVisibleScreenRect(viewer, device, noLensFrustum)
 
-    _material.setUniformVec2(GLSLX_NAME_DISTORTION, distortion[0], distortion[1])
-    _material.setUniformVec4(GLSLX_NAME_LENS_FRUSTUM, lensFrustum[0], lensFrustum[1], lensFrustum[2], lensFrustum[3])
-    _material.setUniformVec4(GLSLX_NAME_NO_LENS_FRUSTUM, noLensFrustum[0], noLensFrustum[1], noLensFrustum[2], noLensFrustum[3])
-    _material.setUniformVec4(GLSLX_NAME_VIEWPORT, viewport[0], viewport[1], viewport[2], viewport[3])
-    _material.setUniformSampler(GLSLX_NAME_TEXTURE, _colorTexture, 0)
+    _lensWarpMaterial.setUniformVec2(GLSLX_NAME_DISTORTION, distortion[0], distortion[1])
+    _lensWarpMaterial.setUniformVec4(GLSLX_NAME_LENS_FRUSTUM, lensFrustum[0], lensFrustum[1], lensFrustum[2], lensFrustum[3])
+    _lensWarpMaterial.setUniformVec4(GLSLX_NAME_NO_LENS_FRUSTUM, noLensFrustum[0], noLensFrustum[1], noLensFrustum[2], noLensFrustum[3])
+    _lensWarpMaterial.setUniformVec4(GLSLX_NAME_VIEWPORT, viewport[0], viewport[1], viewport[2], viewport[3])
 
     var near = 0.1
     _projectionLeft.createFrustum(lensFrustum[0] * near, lensFrustum[2] * near, lensFrustum[3] * near, lensFrustum[1] * near, near, 1000)
@@ -62,36 +76,58 @@ class GoogleCardboardHeadset :: Headset {
     _projectionRight.m02 = -_projectionRight.m02
   }
 
-  def draw {
+  def draw(temporal Temporal) {
     var context = _context
     var width = context.width
     var height = context.height
 
+    # Resizing the screen invalidates temporal anti-aliasing
+    if temporal == .RESET || _temporalColorTexture.width != width || _temporalColorTexture.height != height {
+      _temporalCount = 0
+    }
+
+    # Subpixel shift for temporal anti-aliasing
+    var temporalShiftX = _temporalCount == 0 ? 0 : (Math.random * 2 - 1) / (width * 0.5)
+    var temporalShiftY = _temporalCount == 0 ? 0 : (Math.random * 2 - 1) / height
+
     # Make sure the target texture is the size of the screen
     _colorTexture.resize(width, height)
+    _temporalColorTexture.resize(width, height)
     _depthStencilTexture.resize(width, height)
 
     # Enable draw-to-texture
+    _textureSet.setColor(_colorTexture)
     context.setTextureSet(_textureSet)
     _context.clear(.ALL)
 
     # Draw the left eye
     context.setViewport(0, 0, width / 2, height)
     context.setDepthMode(.READ_WRITE)
-    _delegate.drawEye(1, _projectionLeft)
+    _projection.createTranslate(temporalShiftX, temporalShiftY, 0)
+    _projection.multiplyBy(_projectionLeft)
+    _delegate.drawEye(.LEFT, _projection, _temporalColorTexture, _temporalCount)
 
     # Draw the right eye
     context.setViewport(width / 2, 0, (width + 1) / 2, height)
     context.setDepthMode(.READ_WRITE)
-    _delegate.drawEye(-1, _projectionRight)
+    _projection.createTranslate(temporalShiftX, temporalShiftY, 0)
+    _projection.multiplyBy(_projectionRight)
+    _delegate.drawEye(.RIGHT, _projection, _temporalColorTexture, _temporalCount)
 
     # Disable draw-to-texture
     context.setTextureSet(null)
     _context.clear(.ALL)
 
     # Render the lens warp
+    _lensWarpMaterial.setUniformSampler(GLSLX_NAME_TEXTURE, _colorTexture, 0)
     context.setViewport(0, 0, width, height)
     context.setDepthMode(.NONE)
-    context.draw(.TRIANGLE_STRIP, _material, _quadArea)
+    context.draw(.TRIANGLE_STRIP, _lensWarpMaterial, _quadArea)
+
+    # Temporal anti-aliasing uses ping-pong rendering
+    var swap = _colorTexture
+    _colorTexture = _temporalColorTexture
+    _temporalColorTexture = swap
+    _temporalCount++
   }
 }

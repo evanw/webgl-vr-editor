@@ -57,11 +57,15 @@ namespace GPU {
     def setViewport(x int, y int, width int, height int)
     def width int
 
-    def setBlendState(sourceColor BlendOperation, targetColor BlendOperation, sourceAlpha BlendOperation, targetAlpha BlendOperation)
+    def setBlendState(sourceColor BlendOperation, targetColor BlendOperation, sourceAlpha BlendOperation, targetAlpha BlendOperation, constant double)
     def setCopyBlendState { setBlendState(.ONE, .ZERO, .ONE, .ZERO) }
     def setKeepBlendState { setBlendState(.ZERO, .ONE, .ZERO, .ONE) }
+    def setInterpolateBlendState(t double) { setBlendState(.CONSTANT, .INVERSE_CONSTANT, .CONSTANT, .INVERSE_CONSTANT, t) }
     def setPremultipliedBlendState { setBlendState(.ONE, .INVERSE_SOURCE_ALPHA, .ONE, .INVERSE_SOURCE_ALPHA) }
     def setUnpremultipliedBlendState { setBlendState(.SOURCE_ALPHA, .INVERSE_SOURCE_ALPHA, .SOURCE_ALPHA, .INVERSE_SOURCE_ALPHA) }
+    def setBlendState(sourceColor BlendOperation, targetColor BlendOperation, sourceAlpha BlendOperation, targetAlpha BlendOperation) {
+      setBlendState(sourceColor, targetColor, sourceAlpha, targetAlpha, 0)
+    }
   }
 
   interface Material {

@@ -246,6 +246,70 @@ class Matrix {
       m20 == m.m20 && m21 == m.m21 && m22 == m.m22 && m23 == m.m23 &&
       m30 == m.m30 && m31 == m.m31 && m32 == m.m32 && m33 == m.m33
   }
+
+  def invert {
+    var m00 = self.m00
+    var m01 = self.m01
+    var m02 = self.m02
+    var m03 = self.m03
+
+    var m10 = self.m10
+    var m11 = self.m11
+    var m12 = self.m12
+    var m13 = self.m13
+
+    var m20 = self.m20
+    var m21 = self.m21
+    var m22 = self.m22
+    var m23 = self.m23
+
+    var m30 = self.m30
+    var m31 = self.m31
+    var m32 = self.m32
+    var m33 = self.m33
+
+    self.m00 = m11*m22*m33 - m11*m32*m23 - m12*m21*m33 + m12*m31*m23 + m13*m21*m32 - m13*m31*m22
+    self.m01 = -m01*m22*m33 + m01*m32*m23 + m02*m21*m33 - m02*m31*m23 - m03*m21*m32 + m03*m31*m22
+    self.m02 = m01*m12*m33 - m01*m32*m13 - m02*m11*m33 + m02*m31*m13 + m03*m11*m32 - m03*m31*m12
+    self.m03 = -m01*m12*m23 + m01*m22*m13 + m02*m11*m23 - m02*m21*m13 - m03*m11*m22 + m03*m21*m12
+
+    self.m10 = -m10*m22*m33 + m10*m32*m23 + m12*m20*m33 - m12*m30*m23 - m13*m20*m32 + m13*m30*m22
+    self.m11 = m00*m22*m33 - m00*m32*m23 - m02*m20*m33 + m02*m30*m23 + m03*m20*m32 - m03*m30*m22
+    self.m12 = -m00*m12*m33 + m00*m32*m13 + m02*m10*m33 - m02*m30*m13 - m03*m10*m32 + m03*m30*m12
+    self.m13 = m00*m12*m23 - m00*m22*m13 - m02*m10*m23 + m02*m20*m13 + m03*m10*m22 - m03*m20*m12
+
+    self.m20 = m10*m21*m33 - m10*m31*m23 - m11*m20*m33 + m11*m30*m23 + m13*m20*m31 - m13*m30*m21
+    self.m21 = -m00*m21*m33 + m00*m31*m23 + m01*m20*m33 - m01*m30*m23 - m03*m20*m31 + m03*m30*m21
+    self.m22 = m00*m11*m33 - m00*m31*m13 - m01*m10*m33 + m01*m30*m13 + m03*m10*m31 - m03*m30*m11
+    self.m23 = -m00*m11*m23 + m00*m21*m13 + m01*m10*m23 - m01*m20*m13 - m03*m10*m21 + m03*m20*m11
+
+    self.m30 = -m10*m21*m32 + m10*m31*m22 + m11*m20*m32 - m11*m30*m22 - m12*m20*m31 + m12*m30*m21
+    self.m31 = m00*m21*m32 - m00*m31*m22 - m01*m20*m32 + m01*m30*m22 + m02*m20*m31 - m02*m30*m21
+    self.m32 = -m00*m11*m32 + m00*m31*m12 + m01*m10*m32 - m01*m30*m12 - m02*m10*m31 + m02*m30*m11
+    self.m33 = m00*m11*m22 - m00*m21*m12 - m01*m10*m22 + m01*m20*m12 + m02*m10*m21 - m02*m20*m11
+
+    var det = m00 * self.m00 + m01 * self.m10 + m02 * self.m20 + m03 * self.m30
+
+    self.m00 /= det
+    self.m01 /= det
+    self.m02 /= det
+    self.m03 /= det
+
+    self.m10 /= det
+    self.m11 /= det
+    self.m12 /= det
+    self.m13 /= det
+
+    self.m20 /= det
+    self.m21 /= det
+    self.m22 /= det
+    self.m23 /= det
+
+    self.m30 /= det
+    self.m31 /= det
+    self.m32 /= det
+    self.m33 /= det
+  }
 }
 
 namespace Matrix {

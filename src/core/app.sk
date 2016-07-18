@@ -39,18 +39,26 @@ class App :: HeadsetDelegate {
   const _fontTexture GPU.Texture
   const _textureMaterial GPU.Material
   const _colorTextureMaterial GPU.Material
+  const _temporalMaterial GPU.Material
+  const _temporalQuad GPU.BufferArea
   const _font Font
   const _voxels Voxels
   const _lightmap Lightmap
   const _renderThread RenderThread
 
   const _modelview = Matrix.new
+  const _temporalMatrix = Matrix.new
+  const _inverseModelview = Matrix.new
+  const _inverseProjection = Matrix.new
+  const _previousLeftModelview = Matrix.new
+  const _previousRightModelview = Matrix.new
   const _orientation = Matrix.new
   const _traceResult = TraceResult.new
 
   var _googleCardboardheadset GoogleCardboardHeadset = null
   var _passThroughHeadset PassThroughHeadset = null
   var _headset Headset = null
+  var _resetAntiAliasing = true
 
   var _hasDeviceOrientation = false
   var _headsetButtonState = false
@@ -75,8 +83,12 @@ class App :: HeadsetDelegate {
   var _deviceGammaRate = 0.0
 
   var _eyeX = 0.5
-  var _eyeY = 1.5
+  var _eyeY = 2.5
   var _eyeZ = 0.5
+
+  var _previousEyeX = 0.0
+  var _previousEyeY = 0.0
+  var _previousEyeZ = 0.0
 
   var _keyboardVelocityX = 0.0
   var _keyboardVelocityZ = 0.0
@@ -96,12 +108,14 @@ class App :: HeadsetDelegate {
     _pool = GPU.BufferPool.new(context)
     _textureMaterial = context.createMaterial(.POSITION_F3_COORD_F2, GLSLX_SOURCE_TEXTURE_VERTEX, GLSLX_SOURCE_TEXTURE_FRAGMENT)
     _colorTextureMaterial = context.createMaterial(.POSITION_F3_COORD_F2_COLOR_B4, GLSLX_SOURCE_COLOR_TEXTURE_VERTEX, GLSLX_SOURCE_COLOR_TEXTURE_FRAGMENT)
+    _temporalMaterial = context.createMaterial(.POSITION_F2, GLSLX_SOURCE_TEMPORAL_VERTEX, GLSLX_SOURCE_TEMPORAL_FRAGMENT)
     _fontTexture = context.createTextureFromURL(.RGBA_LINEAR_MIPMAP_LINEAR_REPEAT, "images/berlin_sans.png")
     _passThroughHeadset = PassThroughHeadset.new(context, self)
     _lightmap = Lightmap.new(context)
     _voxels = Voxels.new(context, _textureMaterial, _pool, _lightmap)
     _font = Font.new(context, _colorTextureMaterial, _pool, Font.BERLIN_SANS_GLYPH_TABLE, -0.07)
-    _renderThread = RenderThread.new(_voxels, _lightmap)
+    _renderThread = RenderThread.new(_voxels, _lightmap, => _resetAntiAliasing = true)
+    _temporalQuad = _pool.allocate(GPU.VertexFormat.POSITION_F2, [-1, -1, 1, -1, -1, 1, 1, 1])
 
     var left = 0.0
     for label in _labels {
@@ -129,15 +143,16 @@ class App :: HeadsetDelegate {
   }
 
   def draw {
-    _context.beginFrame
     _headset = _screenOrientation == 0 ? _passThroughHeadset : _googleCardboardheadset ?= GoogleCardboardHeadset.new(_context, _pool, self)
-    _headset.draw
+    _context.beginFrame
+    _headset.draw(_resetAntiAliasing ? .RESET : .CONTINUE)
+    _resetAntiAliasing = false
   }
 
-  def drawEye(offsetX double, projection Matrix) {
+  def drawEye(eye Eye, projection Matrix, previousFrame GPU.Texture, temporalCount int) {
     _modelview
       .loadIdentity
-      .translateBy(offsetX * EYE_SEPARATION_SCALE, 0, 0)
+      .translateBy(eye == .LEFT ? EYE_SEPARATION_SCALE : eye == .RIGHT ? -EYE_SEPARATION_SCALE : 0, 0, 0)
       .multiplyBy(_orientation)
       .translateBy(-_eyeX, -_eyeY, -_eyeZ)
 
@@ -159,9 +174,32 @@ class App :: HeadsetDelegate {
 
     _font.placeText("+", 0.05, _eyeX, _eyeY, _eyeZ, _cameraTheta, _cameraPhi, _cameraPhi < -1 ? Label.ACTIVE_DEPTH - 0.1 : _traceResult.distance, .WHITE)
     _font.placeText("-".repeat(111), 0.1, _eyeX, _eyeY, _eyeZ, _toolbarTheta + Math.PI, -1, 2, .WHITE)
-
     _font.draw
+
+    # Optionally accumulate temporal anti-aliasing
+    if eye != .CENTER && previousFrame != null && temporalCount > 1 {
+      _inverseModelview.copyFrom(_modelview)
+      _inverseModelview.invert
+      _inverseProjection.copyFrom(projection)
+      _inverseProjection.invert
+
+      _temporalMatrix.copyFrom(projection)
+      _temporalMatrix.multiplyBy(eye == .LEFT ? _previousLeftModelview : _previousRightModelview)
+      _temporalMatrix.multiplyBy(_inverseModelview)
+      _temporalMatrix.multiplyBy(_inverseProjection)
+      _temporalMatrix.invert
+
+      _context.setInterpolateBlendState(1 / (1.25 + (_deviceAlphaRate * _deviceAlphaRate + _deviceBetaRate * _deviceBetaRate + _deviceGammaRate * _deviceGammaRate) / (20 * 20)))
+      _temporalMaterial.setUniformSampler(GLSLX_NAME_TEXTURE, previousFrame, 0)
+      _temporalMaterial.setUniformVec4(GLSLX_NAME_VIEWPORT, eye == .RIGHT ? 0.5 : 0, 0, 0.5, 1)
+      _temporalMaterial.setUniformMat4(GLSLX_NAME_MATRIX_TEMPORAL, _temporalMatrix)
+      _context.draw(.TRIANGLE_STRIP, _temporalMaterial, _temporalQuad)
+    }
+
     _context.setCopyBlendState
+
+    if eye == .LEFT { _previousLeftModelview.copyFrom(_modelview) }
+    else { _previousRightModelview.copyFrom(_modelview) }
   }
 
   def updateKeyboardVelocity(deltaX double, deltaZ double) {
@@ -236,6 +274,10 @@ class App :: HeadsetDelegate {
     var speedX = _keyboardVelocityX * speed
     var speedZ = _keyboardVelocityZ * speed
 
+    var oldEyeX = _eyeX
+    var oldEyeY = _eyeY
+    var oldEyeZ = _eyeZ
+
     # The move tool always moves forward
     if activeTool == .MOVE && _headsetButtonState {
       speedZ -= speed
@@ -260,11 +302,30 @@ class App :: HeadsetDelegate {
 
     if _headsetButtonState && !_headsetPreviousButtonState || _mouseButtonState && !_mousePreviousButtonState {
       switch activeTool {
-        case .SUBTRACT { _voxels.set(result.cellX, result.cellY, result.cellZ, .EMPTY) }
-        case .ADD_SOLID { _voxels.set(result.cellX + result.normalX, result.cellY + result.normalY, result.cellZ + result.normalZ, .SOLID) }
-        case .ADD_EMISSIVE { _voxels.set(result.cellX + result.normalX, result.cellY + result.normalY, result.cellZ + result.normalZ, .EMISSIVE) }
-        case .ADD_RED { _voxels.set(result.cellX + result.normalX, result.cellY + result.normalY, result.cellZ + result.normalZ, .RED) }
-        case .ADD_BLUE { _voxels.set(result.cellX + result.normalX, result.cellY + result.normalY, result.cellZ + result.normalZ, .BLUE) }
+        case .SUBTRACT {
+          _voxels.set(result.cellX, result.cellY, result.cellZ, .EMPTY)
+          _resetAntiAliasing = true
+        }
+
+        case .ADD_SOLID {
+          _voxels.set(result.cellX + result.normalX, result.cellY + result.normalY, result.cellZ + result.normalZ, .SOLID)
+          _resetAntiAliasing = true
+        }
+
+        case .ADD_EMISSIVE {
+          _voxels.set(result.cellX + result.normalX, result.cellY + result.normalY, result.cellZ + result.normalZ, .EMISSIVE)
+          _resetAntiAliasing = true
+        }
+
+        case .ADD_RED {
+          _voxels.set(result.cellX + result.normalX, result.cellY + result.normalY, result.cellZ + result.normalZ, .RED)
+          _resetAntiAliasing = true
+        }
+
+        case .ADD_BLUE {
+          _voxels.set(result.cellX + result.normalX, result.cellY + result.normalY, result.cellZ + result.normalZ, .BLUE)
+          _resetAntiAliasing = true
+        }
       }
     }
 
@@ -298,6 +359,11 @@ class App :: HeadsetDelegate {
       var label = _labels[i]
       var targetDepth = i == _labelActiveIndex ? Label.ACTIVE_DEPTH : Label.INACTIVE_DEPTH
       label.depth += (targetDepth - label.depth) * (1 - Math.pow(0.0001, seconds))
+    }
+
+    # Anti-aliasing is invalid if the camera moves
+    if _eyeX != oldEyeX || _eyeY != oldEyeY || _eyeZ != oldEyeZ {
+      _resetAntiAliasing = true
     }
 
     _headsetPreviousButtonState = _headsetButtonState

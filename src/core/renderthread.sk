@@ -3,7 +3,7 @@ class RenderThread {
   const _worker Worker
   var _state = State.IDLE
 
-  def new(voxels Voxels, lightmap Lightmap) {
+  def new(voxels Voxels, lightmap Lightmap, mutationHandler fn()) {
     _voxels = voxels
     _worker = Worker.new("worker.js")
 
@@ -19,6 +19,7 @@ class RenderThread {
         if bytes.length != 0 {
           assert(bytes.length == lightmap.currentData.length)
           lightmap.currentData.set(bytes)
+          mutationHandler()
         }
       }
 

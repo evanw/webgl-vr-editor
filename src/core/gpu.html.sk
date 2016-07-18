@@ -2,6 +2,7 @@ if TARGET == .JAVASCRIPT {
   namespace GPU {
     class HTMLContext :: Context {
       var _attributeCount = 0
+      var _blendConstant = 0.0
       var _blendOperationMap IntMap<GLenum> = null
       var _blendOperations = COPY_BLEND_OPERATIONS
       var _contextResetHandlers List<fn()> = []
@@ -14,6 +15,7 @@ if TARGET == .JAVASCRIPT {
       var _gl WebGLRenderingContext = null
       var _height = 0
       var _imageDecodeContext CanvasRenderingContext2D = null
+      var _oldBlendConstant = 0.0
       var _oldBlendOperations = COPY_BLEND_OPERATIONS
       var _oldDepthMode = DepthMode.NONE
       var _oldTextureSet HTMLTextureSet = null
@@ -130,8 +132,9 @@ if TARGET == .JAVASCRIPT {
         _gl.pixelStorei(_gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, 1)
       }
 
-      def setBlendState(sourceColor BlendOperation, targetColor BlendOperation, sourceAlpha BlendOperation, targetAlpha BlendOperation) {
+      def setBlendState(sourceColor BlendOperation, targetColor BlendOperation, sourceAlpha BlendOperation, targetAlpha BlendOperation, constant double) {
         _blendOperations = _packBlendModes(sourceColor, targetColor, sourceAlpha, targetAlpha)
+        _blendConstant = constant
       }
 
       def decodeFilter(filter PixelFilter) GLenum {
@@ -270,7 +273,7 @@ if TARGET == .JAVASCRIPT {
       }
 
       def _updateBlendState {
-        if _forceStateUpdate || _oldBlendOperations != _blendOperations {
+        if _forceStateUpdate || _oldBlendOperations != _blendOperations || _oldBlendConstant != _blendConstant {
           var gl = _gl
           var operations = _blendOperations
           var oldOperations = _oldBlendOperations
@@ -278,11 +281,13 @@ if TARGET == .JAVASCRIPT {
           var targetColor = ((operations >> 8) & 0xFF) as BlendOperation
           var sourceAlpha = ((operations >> 16) & 0xFF) as BlendOperation
           var targetAlpha = (operations >> 24) as BlendOperation
+          var constant = _blendConstant
 
           assert(sourceColor in _blendOperationMap)
           assert(targetColor in _blendOperationMap)
           assert(sourceAlpha in _blendOperationMap)
           assert(targetAlpha in _blendOperationMap)
+          assert(constant >= 0 && constant <= 1)
 
           # Special-case the blend mode that doesn't modify anything
           if operations == KEEP_BLEND_OPERATIONS {
@@ -302,10 +307,12 @@ if TARGET == .JAVASCRIPT {
 
               # Otherwise, use actual blending
               gl.blendFuncSeparate(_blendOperationMap[sourceColor], _blendOperationMap[targetColor], _blendOperationMap[sourceAlpha], _blendOperationMap[targetAlpha])
+              gl.blendColor(constant, constant, constant, constant)
             }
           }
 
           _oldBlendOperations = operations
+          _oldBlendConstant = _blendConstant
         }
       }
 

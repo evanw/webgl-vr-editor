@@ -4,6 +4,7 @@ precision highp float;
 uniform sampler2D texture;
 uniform mat4 matrixModelview;
 uniform mat4 matrixProjection;
+uniform mat4 matrixTemporal;
 
 uniform vec4 lensFrustum;
 uniform vec4 noLensFrustum;
@@ -30,12 +31,12 @@ const int Y = 1;
 const int W = 2;
 const int H = 3;
 
-export void headsetVertex() {
+export void lensWarpVertex() {
   _coord2 = position2;
   gl_Position = vec4(position2 * 2.0 - 1.0, 0, 1);
 }
 
-export void headsetFragment() {
+export void lensWarpFragment() {
   float u = ((_coord2.x < 0.5 ? _coord2.x : 1.0 - _coord2.x) - viewport[X]) / viewport[W];
   float v = (_coord2.y - viewport[Y]) / viewport[H];
 
@@ -51,6 +52,15 @@ export void headsetFragment() {
   gl_FragColor =
     texture2D(texture, vec2(_coord2.x < 0.5 ? s * 0.5 : 1.0 - s * 0.5, t)) *
     clamp(10.0 - 20.0 * max(abs(0.5 - s), abs(0.5 - t)), 0.0, 1.0);
+}
+
+export void temporalVertex() {
+  _coord2 = viewport.xy + viewport.zw * (position2 * 0.5 + 0.5);
+  gl_Position = matrixTemporal * vec4(position2, 0, 1);
+}
+
+export void temporalFragment() {
+  gl_FragColor = texture2D(texture, _coord2);
 }
 
 export void textureVertex() {
