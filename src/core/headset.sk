@@ -87,8 +87,8 @@ class GoogleCardboardHeadset :: Headset {
     }
 
     # Subpixel shift for temporal anti-aliasing
-    var temporalShiftX = _temporalCount == 0 ? 0 : (Math.random * 2 - 1) / (width * 0.5)
-    var temporalShiftY = _temporalCount == 0 ? 0 : (Math.random * 2 - 1) / height
+    var temporalShiftX = _temporalCount == 0 ? 0 : MSAA_8X[_temporalCount * 2 & 15] / (width * 0.5)
+    var temporalShiftY = _temporalCount == 0 ? 0 : MSAA_8X[_temporalCount * 2 + 1 & 15] / height
 
     # Make sure the target texture is the size of the screen
     _colorTexture.resize(width, height)
@@ -131,3 +131,14 @@ class GoogleCardboardHeadset :: Headset {
     _temporalCount++
   }
 }
+
+const MSAA_8X = [
+  -3 / 8.0, -5 / 8.0,
+  +5 / 8.0, +1 / 8.0,
+  -1 / 8.0, +3 / 8.0,
+  +7 / 8.0, -7 / 8.0,
+  +1 / 8.0, -3 / 8.0,
+  -5 / 8.0, +5 / 8.0,
+  +3 / 8.0, +7 / 8.0,
+  -7 / 8.0, -1 / 8.0,
+]

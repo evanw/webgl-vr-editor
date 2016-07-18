@@ -75,7 +75,7 @@ export void textureFragment() {
   // Simple randomized dithering to help avoid banding
   float dither = fract(sin(pixel.x * 1783.0 + pixel.y * 1373.0) * 1759.0) - 0.5;
 
-  gl_FragColor = texture2D(texture, _coord2) + vec4(dither / 255.0);
+  gl_FragColor = texture2D(texture, _coord2) + dither / 255.0;
 }
 
 export void colorTextureVertex() {
