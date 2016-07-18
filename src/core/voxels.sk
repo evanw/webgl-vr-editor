@@ -257,9 +257,9 @@ class Voxels {
     # Do all lightmap invalidation ahead of time
     for chunk in _chunkList {
       for quad in chunk.quads {
-        var x = quad.x
-        var y = quad.y
-        var z = quad.z
+        var x = quad.x * (Lightmap.SAMPLE_DENSITY - 1)
+        var y = quad.y * (Lightmap.SAMPLE_DENSITY - 1)
+        var z = quad.z * (Lightmap.SAMPLE_DENSITY - 1)
 
         var u = quad.u
         var v = quad.v
@@ -273,20 +273,23 @@ class Voxels {
         var vy = v.y
         var vz = v.z
 
-        assert(Lightmap.SAMPLE_DENSITY == 2)
-
         # Accumulate normals even for emissive lights so that samples on boundary quads have enough epsilon offset
-        radiosity.recordSample(x, y, z, n)
-        radiosity.recordSample(x + ux, y + uy, z + uz, n)
-        radiosity.recordSample(x + vx, y + vy, z + vz, n)
-        radiosity.recordSample(x + ux + vx, y + uy + vy, z + uz + vz, n)
+        for vi in 0..Lightmap.SAMPLE_DENSITY {
+          for ui in 0..Lightmap.SAMPLE_DENSITY {
+            radiosity.recordSample(
+              x + ux * ui + vx * vi,
+              y + uy * ui + vy * vi,
+              z + uz * ui + vz * vi,
+              n)
+          }
+        }
 
         if quad.color == .WHITE {
           radiosity.recordLight(
             quad.x + (ux + vx) * 0.5 + n.x * 0.01,
             quad.y + (uy + vy) * 0.5 + n.y * 0.01,
             quad.z + (uz + vz) * 0.5 + n.z * 0.01,
-            n, 1)
+            n, 0.5)
         }
 
         else {
@@ -301,13 +304,13 @@ class Voxels {
     var lightmap = _lightmap
     var width = lightmap.currentWidth
     var data = lightmap.currentData
-    var stride = width * (Lightmap.SAMPLE_DENSITY * 4)
+    var skip = (width - 1) * (Lightmap.SAMPLE_DENSITY * 4)
 
     # Read out radiosity results
     for quad in quads {
-      var x = quad.x
-      var y = quad.y
-      var z = quad.z
+      var x = quad.x * (Lightmap.SAMPLE_DENSITY - 1)
+      var y = quad.y * (Lightmap.SAMPLE_DENSITY - 1)
+      var z = quad.z * (Lightmap.SAMPLE_DENSITY - 1)
 
       var u = quad.u
       var v = quad.v
@@ -321,21 +324,33 @@ class Voxels {
       var vy = v.y
       var vz = v.z
 
-      var sample00 = radiosity.fetchSample(x, y, z, n)
-      var sample10 = radiosity.fetchSample(x + ux, y + uy, z + uz, n)
-      var sample01 = radiosity.fetchSample(x + vx, y + vy, z + vz, n)
-      var sample11 = radiosity.fetchSample(x + ux + vx, y + uy + vy, z + uz + vz, n)
-
       var cell = lightmap.handleToCell(quad.handle)
       var cellX = cell % width
       var index = (cellX + (cell - cellX) * Lightmap.SAMPLE_DENSITY) * (Lightmap.SAMPLE_DENSITY * 4)
       var color = quad.color
 
-      assert(Lightmap.SAMPLE_DENSITY == 2)
-      _writeSample(data, index, sample00, color)
-      _writeSample(data, index + 4, sample10, color)
-      _writeSample(data, index + stride, sample01, color)
-      _writeSample(data, index + stride + 4, sample11, color)
+      for vi in 0..Lightmap.SAMPLE_DENSITY {
+        for ui in 0..Lightmap.SAMPLE_DENSITY {
+          var sample = radiosity.fetchSample(
+            x + ux * ui + vx * vi,
+            y + uy * ui + vy * vi,
+            z + uz * ui + vz * vi,
+            n)
+
+          var colorR = (sample * color.red) as int
+          var colorG = (sample * color.green) as int
+          var colorB = (sample * color.blue) as int
+
+          data[index]     = colorR < 255 ? colorR : 255
+          data[index + 1] = colorG < 255 ? colorG : 255
+          data[index + 2] = colorB < 255 ? colorB : 255
+          data[index + 3] = 255
+
+          index += 4
+        }
+
+        index += skip
+      }
     }
   }
 }
@@ -369,17 +384,6 @@ namespace Voxels {
       (cellX >> CELLS_SHIFT & CHUNK_MASK_X) |
       (cellY >> CELLS_SHIFT & CHUNK_MASK_Y) << CHUNK_BITS_X |
       (cellZ >> CELLS_SHIFT & CHUNK_MASK_Z) << (CHUNK_BITS_X + CHUNK_BITS_Y)
-  }
-
-  def _writeSample(data Uint8Array, index int, sample double, color Color) {
-    var colorR = (sample * color.red) as int
-    var colorG = (sample * color.green) as int
-    var colorB = (sample * color.blue) as int
-
-    data[index]     = colorR < 255 ? colorR : 255
-    data[index + 1] = colorG < 255 ? colorG : 255
-    data[index + 2] = colorB < 255 ? colorB : 255
-    data[index + 3] = 255
   }
 
   class Quad {

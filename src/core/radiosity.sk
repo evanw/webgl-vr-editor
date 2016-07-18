@@ -50,10 +50,10 @@ class Radiosity {
       sny *= sn
       snz *= sn
 
-      # Offset the sample by a bit so samples adjacent to a light aren't totally black
-      var sx = sample.x + snx * 0.1
-      var sy = sample.y + sny * 0.1
-      var sz = sample.z + snz * 0.1
+      # Offset the sample by epsilon to help occlusion testing
+      var sx = sample.x * (1.0 / (Lightmap.SAMPLE_DENSITY - 1)) + snx * 0.001
+      var sy = sample.y * (1.0 / (Lightmap.SAMPLE_DENSITY - 1)) + sny * 0.001
+      var sz = sample.z * (1.0 / (Lightmap.SAMPLE_DENSITY - 1)) + snz * 0.001
 
       var mask = sample.mask
       var xneg = 0.0
@@ -105,12 +105,15 @@ class Radiosity {
         if .ZPOS in mask && dz > 0 { zpos += transfer * dz }
       }
 
-      sample.xneg = xneg
-      sample.xpos = xpos
-      sample.yneg = yneg
-      sample.ypos = ypos
-      sample.zneg = zneg
-      sample.zpos = zpos
+      # Take the square root for gamma-correction (doing this here is technically
+      # less correct than doing it in the shader after texture interpolation, but
+      # the texture interpolation makes it look better)
+      sample.xneg = .XNEG in mask ? Math.sqrt(xneg) : 0
+      sample.xpos = .XPOS in mask ? Math.sqrt(xpos) : 0
+      sample.yneg = .YNEG in mask ? Math.sqrt(yneg) : 0
+      sample.ypos = .YPOS in mask ? Math.sqrt(ypos) : 0
+      sample.zneg = .ZNEG in mask ? Math.sqrt(zneg) : 0
+      sample.zpos = .ZPOS in mask ? Math.sqrt(zpos) : 0
     }
   }
 }
