@@ -82,13 +82,7 @@ class App :: HeadsetDelegate {
   var _deviceBetaRate = 0.0
   var _deviceGammaRate = 0.0
 
-  var _eyeX = 0.5
-  var _eyeY = 2.5
-  var _eyeZ = 0.5
-
-  var _previousEyeX = 0.0
-  var _previousEyeY = 0.0
-  var _previousEyeZ = 0.0
+  var _player = CollisionBox.new(0.1, 2.1, 0.1, 0.8, 0.8, 0.8)
 
   var _keyboardVelocityX = 0.0
   var _keyboardVelocityZ = 0.0
@@ -150,11 +144,16 @@ class App :: HeadsetDelegate {
   }
 
   def drawEye(eye Eye, projection Matrix, previousFrame GPU.Texture, temporalCount int) {
+    var player = _player
+    var eyeX = player.centerX
+    var eyeY = player.centerY
+    var eyeZ = player.centerZ
+
     _modelview
       .loadIdentity
       .translateBy(eye == .LEFT ? EYE_SEPARATION_SCALE : eye == .RIGHT ? -EYE_SEPARATION_SCALE : 0, 0, 0)
       .multiplyBy(_orientation)
-      .translateBy(-_eyeX, -_eyeY, -_eyeZ)
+      .translateBy(-eyeX, -eyeY, -eyeZ)
 
     _textureMaterial.setUniformMat4(GLSLX_NAME_MATRIX_MODELVIEW, _modelview)
     _textureMaterial.setUniformMat4(GLSLX_NAME_MATRIX_PROJECTION, projection)
@@ -168,12 +167,12 @@ class App :: HeadsetDelegate {
 
     for i in 0.._labels.count {
       var label = _labels[i]
-      _font.placeText(label.text, Label.FONT_SIZE, _eyeX, _eyeY, _eyeZ, _toolbarTheta + label.thetaLeft,
+      _font.placeText(label.text, Label.FONT_SIZE, eyeX, eyeY, eyeZ, _toolbarTheta + label.thetaLeft,
         Label.PHI, label.depth, i == _labelActiveIndex ? Label.ACTIVE_COLOR : Label.INACTIVE_COLOR)
     }
 
-    _font.placeText("+", 0.05, _eyeX, _eyeY, _eyeZ, _cameraTheta, _cameraPhi, _cameraPhi < -1 ? Label.ACTIVE_DEPTH - 0.1 : _traceResult.distance, .WHITE)
-    _font.placeText("-".repeat(111), 0.1, _eyeX, _eyeY, _eyeZ, _toolbarTheta + Math.PI, -1, 2, .WHITE)
+    _font.placeText("+", 0.05, eyeX, eyeY, eyeZ, _cameraTheta, _cameraPhi, _cameraPhi < -1 ? Label.ACTIVE_DEPTH - 0.1 : _traceResult.distance, .WHITE)
+    _font.placeText("-".repeat(111), 0.1, eyeX, eyeY, eyeZ, _toolbarTheta + Math.PI, -1, 2, .WHITE)
     _font.draw
 
     # Optionally accumulate temporal anti-aliasing
@@ -274,31 +273,29 @@ class App :: HeadsetDelegate {
     var speedX = _keyboardVelocityX * speed
     var speedZ = _keyboardVelocityZ * speed
 
-    var oldEyeX = _eyeX
-    var oldEyeY = _eyeY
-    var oldEyeZ = _eyeZ
-
     # The move tool always moves forward
     if activeTool == .MOVE && _headsetButtonState {
       speedZ -= speed
     }
 
-    # Move left/right
-    _eyeX += _orientation.m00 * speedX
-    _eyeY += _orientation.m01 * speedX
-    _eyeZ += _orientation.m02 * speedX
+    # Move left/right and forward/backward
+    var deltaX = _orientation.m00 * speedX + _orientation.m20 * speedZ
+    var deltaY = _orientation.m01 * speedX + _orientation.m21 * speedZ
+    var deltaZ = _orientation.m02 * speedX + _orientation.m22 * speedZ
+    var player = _player
 
-    # Move forward/backward
-    _eyeX += _orientation.m20 * speedZ
-    _eyeY += _orientation.m21 * speedZ
-    _eyeZ += _orientation.m22 * speedZ
+    # Anti-aliasing is invalid if the camera moves
+    if deltaX != 0 || deltaY != 0 || deltaZ != 0 {
+      _resetAntiAliasing = true
+      player.moveBy(_voxels, deltaX, deltaY, deltaZ)
+    }
 
     # Figure out where the camera is pointing
     _cameraTheta = Math.atan2(-_orientation.m20, _orientation.m22)
     _cameraPhi = Math.asin(-_orientation.m21)
 
     # Figure out what's under the cursor
-    _voxels.trace(_eyeX, _eyeY, _eyeZ, -_orientation.m20, -_orientation.m21, -_orientation.m22, result)
+    _voxels.trace(player.centerX, player.centerY, player.centerZ, -_orientation.m20, -_orientation.m21, -_orientation.m22, result)
 
     if _headsetButtonState && !_headsetPreviousButtonState || _mouseButtonState && !_mousePreviousButtonState {
       switch activeTool {
@@ -306,26 +303,10 @@ class App :: HeadsetDelegate {
           _voxels.set(result.cellX, result.cellY, result.cellZ, .EMPTY)
           _resetAntiAliasing = true
         }
-
-        case .ADD_SOLID {
-          _voxels.set(result.cellX + result.normalX, result.cellY + result.normalY, result.cellZ + result.normalZ, .SOLID)
-          _resetAntiAliasing = true
-        }
-
-        case .ADD_EMISSIVE {
-          _voxels.set(result.cellX + result.normalX, result.cellY + result.normalY, result.cellZ + result.normalZ, .EMISSIVE)
-          _resetAntiAliasing = true
-        }
-
-        case .ADD_RED {
-          _voxels.set(result.cellX + result.normalX, result.cellY + result.normalY, result.cellZ + result.normalZ, .RED)
-          _resetAntiAliasing = true
-        }
-
-        case .ADD_BLUE {
-          _voxels.set(result.cellX + result.normalX, result.cellY + result.normalY, result.cellZ + result.normalZ, .BLUE)
-          _resetAntiAliasing = true
-        }
+        case .ADD_SOLID    { _addCell(.SOLID) }
+        case .ADD_EMISSIVE { _addCell(.EMISSIVE) }
+        case .ADD_RED      { _addCell(.RED) }
+        case .ADD_BLUE     { _addCell(.BLUE) }
       }
     }
 
@@ -361,14 +342,21 @@ class App :: HeadsetDelegate {
       label.depth += (targetDepth - label.depth) * (1 - Math.pow(0.0001, seconds))
     }
 
-    # Anti-aliasing is invalid if the camera moves
-    if _eyeX != oldEyeX || _eyeY != oldEyeY || _eyeZ != oldEyeZ {
-      _resetAntiAliasing = true
-    }
-
     _headsetPreviousButtonState = _headsetButtonState
     _mousePreviousButtonState = _mouseButtonState
     _renderThread.update
+  }
+
+  def _addCell(cell Cell) {
+    var result = _traceResult
+    var x = result.cellX + result.normalX
+    var y = result.cellY + result.normalY
+    var z = result.cellZ + result.normalZ
+
+    if !_player.overlapsCell(x, y, z) {
+      _voxels.set(x, y, z, cell)
+      _resetAntiAliasing = true
+    }
   }
 }
 

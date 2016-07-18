@@ -24,9 +24,11 @@ class TraceResult {
   var cellX = 0
   var cellY = 0
   var cellZ = 0
+
   var normalX = 0
   var normalY = 0
   var normalZ = 0
+
   var distance = 0.0
 }
 
@@ -86,6 +88,20 @@ class Voxels {
   const _chunkMap IntMap<Chunk> = {}
   const _chunkList List<Chunk> = []
   const _pendingEvents = DataArray.new
+
+  def isEmpty(xmin int, ymin int, zmin int, xmax int, ymax int, zmax int) bool {
+    for z = zmin; z <= zmax; z++ {
+      for y = ymin; y <= ymax; y++ {
+        for x = xmin; x <= xmax; x++ {
+          if get(x, y, z) != .EMPTY {
+            return false
+          }
+        }
+      }
+    }
+
+    return true
+  }
 
   def get(x int, y int, z int) Cell {
     var chunk = _chunkMap.get(_key(x, y, z), null)
