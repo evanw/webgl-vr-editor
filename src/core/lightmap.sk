@@ -13,7 +13,7 @@ class Lightmap {
   var _needsTextureUpload = false
 
   def new(context GPU.Context) {
-    _texture = context.createTexture(.RGBA_LINEAR_CLAMP, INITIAL_SIZE * SAMPLE_DENSITY, INITIAL_SIZE * SAMPLE_DENSITY)
+    _texture = context?.createTexture(.RGBA_LINEAR_CLAMP, INITIAL_SIZE * SAMPLE_DENSITY, INITIAL_SIZE * SAMPLE_DENSITY)
     _freeMapEntry = (key, handle) => free(handle)
   }
 
@@ -91,13 +91,11 @@ class Lightmap {
     _freeCount--
 
     # Populate the cell data
+    var clear = color == .WHITE ? 255 : 0
     for y in 0..SAMPLE_DENSITY {
-      for x in 0..SAMPLE_DENSITY {
-        data[index] = color.red
-        data[index + 1] = color.green
-        data[index + 2] = color.blue
-        data[index + 3] = color.alpha
-        index += 4
+      for x in 0..SAMPLE_DENSITY * 4 {
+        data[index] = clear
+        index++
       }
       index += skip
     }

@@ -85,6 +85,7 @@ class Voxels {
   const _lightmap Lightmap
   const _chunkMap IntMap<Chunk> = {}
   const _chunkList List<Chunk> = []
+  const _pendingEvents = DataArray.new
 
   def get(x int, y int, z int) Cell {
     var chunk = _chunkMap.get(_key(x, y, z), null)
@@ -168,14 +169,19 @@ class Voxels {
       _chunkList.append(chunk)
     }
 
-    chunk?.set(x & CELLS_MASK, y & CELLS_MASK, z & CELLS_MASK, cell)
+    if chunk != null && chunk.set(x & CELLS_MASK, y & CELLS_MASK, z & CELLS_MASK, cell) == .WAS_CHANGED {
+      _pendingEvents
+        .appendByte(EventType.SET_CELL)
+        .appendInt(x)
+        .appendInt(y)
+        .appendInt(z)
+        .appendByte(cell)
+    }
   }
 
   def draw {
     # Allocate all quads first, may invalidate the lightmap
-    for chunk in _chunkList {
-      chunk.quads
-    }
+    updateQuadsIfNeeded
 
     # Upload the texture now that lightmap invalidation is done
     _material.setUniformSampler(GLSLX_NAME_TEXTURE, _lightmap.texture, 0)
@@ -184,6 +190,40 @@ class Voxels {
     for chunk in _chunkList {
       _context.draw(.TRIANGLES, _material, chunk.area(_pool))
     }
+  }
+
+  def applyEvents(bytes Uint8Array) {
+    var array = DataArray.new(bytes)
+
+    while array.byteOffset < array.byteCount {
+      switch array.readByte as EventType {
+        case .SET_CELL {
+          var x = array.readInt
+          var y = array.readInt
+          var z = array.readInt
+          set(x, y, z, array.readByte as Cell)
+        }
+
+        case .UPDATE_QUADS {
+          updateQuadsIfNeeded
+          assert(!needsQuadsUpdate)
+        }
+
+        default {
+          assert(false)
+        }
+      }
+    }
+  }
+
+  def hasEventsToFlush bool {
+    return !_pendingEvents.isEmpty
+  }
+
+  def flushEvents Uint8Array {
+    var bytes = Uint8Array.new(_pendingEvents.bytes)
+    _pendingEvents.clear
+    return bytes
   }
 
   def trace(x double, y double, z double, rayX double, rayY double, rayZ double, result TraceResult) bool {
@@ -251,6 +291,8 @@ class Voxels {
   }
 
   def stepRadiosity {
+    assert(!needsQuadsUpdate)
+
     var radiosity = Radiosity.new(self)
     var quads List<Quad> = []
 
@@ -353,6 +395,30 @@ class Voxels {
       }
     }
   }
+
+  def needsQuadsUpdate bool {
+    for chunk in _chunkList {
+      if chunk.needsQuadsUpdate {
+        return true
+      }
+    }
+
+    return false
+  }
+
+  def updateQuadsIfNeeded {
+    var wasChanged = false
+
+    for chunk in _chunkList {
+      if chunk.updateQuads == .WAS_CHANGED {
+        wasChanged = true
+      }
+    }
+
+    if wasChanged {
+      _pendingEvents.appendByte(EventType.UPDATE_QUADS)
+    }
+  }
 }
 
 namespace Voxels {
@@ -384,6 +450,16 @@ namespace Voxels {
       (cellX >> CELLS_SHIFT & CHUNK_MASK_X) |
       (cellY >> CELLS_SHIFT & CHUNK_MASK_Y) << CHUNK_BITS_X |
       (cellZ >> CELLS_SHIFT & CHUNK_MASK_Z) << (CHUNK_BITS_X + CHUNK_BITS_Y)
+  }
+
+  enum EventType {
+    SET_CELL
+    UPDATE_QUADS
+  }
+
+  enum Change {
+    NO_CHANGE
+    WAS_CHANGED
   }
 
   class Quad {
@@ -426,8 +502,17 @@ namespace Voxels {
 
     var _cachedQuads List<Quad> = null
     var _cachedArea GPU.BufferArea = null
-    var _isInvalid = true
+    var _needsQuadsUpdate = true
     var _generation = 0
+
+    def needsQuadsUpdate bool {
+      return _needsQuadsUpdate
+    }
+
+    def quads List<Quad> {
+      assert(!_needsQuadsUpdate)
+      return _cachedQuads
+    }
 
     def get(localX int, localY int, localZ int) Cell {
       assert(0 <= localX && localX < CELLS_SIZE)
@@ -436,95 +521,100 @@ namespace Voxels {
       return cells[localX | localY << CELLS_SHIFT | localZ << 2 * CELLS_SHIFT] as Cell
     }
 
-    def set(localX int, localY int, localZ int, cell Cell) {
+    def set(localX int, localY int, localZ int, cell Cell) Change {
       assert(0 <= localX && localX < CELLS_SIZE)
       assert(0 <= localY && localY < CELLS_SIZE)
       assert(0 <= localZ && localZ < CELLS_SIZE)
       var index = localX | localY << CELLS_SHIFT | localZ << 2 * CELLS_SHIFT
 
-      if cells[index] != cell {
-        cells[index] = cell
-        _invalidate
-
-        if localX == 0 { xneg?._invalidate }
-        else if localX == CELLS_MASK { xpos?._invalidate }
-
-        if localY == 0 { yneg?._invalidate }
-        else if localY == CELLS_MASK { ypos?._invalidate }
-
-        if localZ == 0 { zneg?._invalidate }
-        else if localZ == CELLS_MASK { zpos?._invalidate }
+      if cells[index] == cell {
+        return .NO_CHANGE
       }
+
+      cells[index] = cell
+      _invalidate
+
+      if localX == 0 { xneg?._invalidate }
+      else if localX == CELLS_MASK { xpos?._invalidate }
+
+      if localY == 0 { yneg?._invalidate }
+      else if localY == CELLS_MASK { ypos?._invalidate }
+
+      if localZ == 0 { zneg?._invalidate }
+      else if localZ == CELLS_MASK { zpos?._invalidate }
+
+      return .WAS_CHANGED
     }
 
     def _invalidate {
-      _isInvalid = true
+      _needsQuadsUpdate = true
       _cachedArea?.free
       _cachedArea = null
     }
 
-    def quads List<Quad> {
-      if _isInvalid {
-        var oldHandles IntMap<Lightmap.Handle> = {}
-        var originX = self.originX
-        var originY = self.originY
-        var originZ = self.originZ
-        var cells = self.cells
-        var xneg = self.xneg
-        var xpos = self.xpos
-        var yneg = self.yneg
-        var ypos = self.ypos
-        var zneg = self.zneg
-        var zpos = self.zpos
-        var i = 0
-
-        if _cachedQuads != null {
-          for quad in _cachedQuads {
-            oldHandles[quad.id] = quad.handle
-          }
-        }
-
-        _cachedQuads = []
-        _isInvalid = false
-
-        for z in 0..CELLS_SIZE {
-          for y in 0..CELLS_SIZE {
-            for x in 0..CELLS_SIZE {
-              var cell = cells[i] as Cell
-
-              if cell == .EMPTY {
-                const SIZE = CELLS_SIZE
-                const MASK = CELLS_MASK
-                const SHIFT = CELLS_SHIFT
-
-                var globalX = originX + x
-                var globalY = originY + y
-                var globalZ = originZ + z
-
-                var xnegCell = x > 0    ? cells[i - 1]           as Cell : xneg != null ? xneg.cells[i ^ MASK]                as Cell : Cell.SOLID
-                var ynegCell = y > 0    ? cells[i - SIZE]        as Cell : yneg != null ? yneg.cells[i ^ (MASK << SHIFT)]     as Cell : Cell.SOLID
-                var znegCell = z > 0    ? cells[i - SIZE * SIZE] as Cell : zneg != null ? zneg.cells[i ^ (MASK << 2 * SHIFT)] as Cell : Cell.SOLID
-                var xposCell = x < MASK ? cells[i + 1]           as Cell : xpos != null ? xpos.cells[i ^ MASK]                as Cell : Cell.SOLID
-                var yposCell = y < MASK ? cells[i + SIZE]        as Cell : ypos != null ? ypos.cells[i ^ (MASK << SHIFT)]     as Cell : Cell.SOLID
-                var zposCell = z < MASK ? cells[i + SIZE * SIZE] as Cell : zpos != null ? zpos.cells[i ^ (MASK << 2 * SHIFT)] as Cell : Cell.SOLID
-
-                if xnegCell != .EMPTY { _appendQuad(globalX, globalY, globalZ, .Y, .Z, .XPOS, xnegCell.color, oldHandles) }
-                if ynegCell != .EMPTY { _appendQuad(globalX, globalY, globalZ, .Z, .X, .YPOS, ynegCell.color, oldHandles) }
-                if znegCell != .EMPTY { _appendQuad(globalX, globalY, globalZ, .X, .Y, .ZPOS, znegCell.color, oldHandles) }
-                if xposCell != .EMPTY { _appendQuad(globalX + 1, globalY, globalZ, .Z, .Y, .XNEG, xposCell.color, oldHandles) }
-                if yposCell != .EMPTY { _appendQuad(globalX, globalY + 1, globalZ, .X, .Z, .YNEG, yposCell.color, oldHandles) }
-                if zposCell != .EMPTY { _appendQuad(globalX, globalY, globalZ + 1, .Y, .X, .ZNEG, zposCell.color, oldHandles) }
-              }
-
-              i++
-            }
-          }
-        }
-
-        _lightmap.freeAll(oldHandles)
+    def updateQuads Change {
+      if !_needsQuadsUpdate {
+        return .NO_CHANGE
       }
 
-      return _cachedQuads
+      var oldHandles IntMap<Lightmap.Handle> = {}
+      var originX = self.originX
+      var originY = self.originY
+      var originZ = self.originZ
+      var cells = self.cells
+      var xneg = self.xneg
+      var xpos = self.xpos
+      var yneg = self.yneg
+      var ypos = self.ypos
+      var zneg = self.zneg
+      var zpos = self.zpos
+      var i = 0
+
+      if _cachedQuads != null {
+        for quad in _cachedQuads {
+          oldHandles[quad.id] = quad.handle
+        }
+      }
+
+      _cachedQuads = []
+      _needsQuadsUpdate = false
+
+      for z in 0..CELLS_SIZE {
+        for y in 0..CELLS_SIZE {
+          for x in 0..CELLS_SIZE {
+            var cell = cells[i] as Cell
+
+            if cell == .EMPTY {
+              const SIZE = CELLS_SIZE
+              const MASK = CELLS_MASK
+              const SHIFT = CELLS_SHIFT
+
+              var globalX = originX + x
+              var globalY = originY + y
+              var globalZ = originZ + z
+
+              var xnegCell = x > 0    ? cells[i - 1]           as Cell : xneg != null ? xneg.cells[i ^ MASK]                as Cell : Cell.SOLID
+              var ynegCell = y > 0    ? cells[i - SIZE]        as Cell : yneg != null ? yneg.cells[i ^ (MASK << SHIFT)]     as Cell : Cell.SOLID
+              var znegCell = z > 0    ? cells[i - SIZE * SIZE] as Cell : zneg != null ? zneg.cells[i ^ (MASK << 2 * SHIFT)] as Cell : Cell.SOLID
+              var xposCell = x < MASK ? cells[i + 1]           as Cell : xpos != null ? xpos.cells[i ^ MASK]                as Cell : Cell.SOLID
+              var yposCell = y < MASK ? cells[i + SIZE]        as Cell : ypos != null ? ypos.cells[i ^ (MASK << SHIFT)]     as Cell : Cell.SOLID
+              var zposCell = z < MASK ? cells[i + SIZE * SIZE] as Cell : zpos != null ? zpos.cells[i ^ (MASK << 2 * SHIFT)] as Cell : Cell.SOLID
+
+              if xnegCell != .EMPTY { _appendQuad(globalX, globalY, globalZ, .Y, .Z, .XPOS, xnegCell.color, oldHandles) }
+              if ynegCell != .EMPTY { _appendQuad(globalX, globalY, globalZ, .Z, .X, .YPOS, ynegCell.color, oldHandles) }
+              if znegCell != .EMPTY { _appendQuad(globalX, globalY, globalZ, .X, .Y, .ZPOS, znegCell.color, oldHandles) }
+              if xposCell != .EMPTY { _appendQuad(globalX + 1, globalY, globalZ, .Z, .Y, .XNEG, xposCell.color, oldHandles) }
+              if yposCell != .EMPTY { _appendQuad(globalX, globalY + 1, globalZ, .X, .Z, .YNEG, yposCell.color, oldHandles) }
+              if zposCell != .EMPTY { _appendQuad(globalX, globalY, globalZ + 1, .Y, .X, .ZNEG, zposCell.color, oldHandles) }
+            }
+
+            i++
+          }
+        }
+      }
+
+      _lightmap.freeAll(oldHandles)
+      return .WAS_CHANGED
     }
 
     def _appendQuad(x int, y int, z int, u Delta, v Delta, n Normal, color Color, oldHandles IntMap<Lightmap.Handle>) {

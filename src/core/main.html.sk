@@ -1,5 +1,13 @@
 if TARGET == .JAVASCRIPT {
-  @entry
+  enum Build {
+    NONE
+    MAIN_THREAD
+    WORKER_THREAD
+  }
+
+  const BUILD = Build.NONE
+
+  @entry if BUILD == .MAIN_THREAD
   def main {
     var context GPU.HTMLContext = null
 
@@ -20,7 +28,6 @@ if TARGET == .JAVASCRIPT {
     const KEY_DOWN = 40
     const KEY_A = 65
     const KEY_D = 68
-    const KEY_L = 76
     const KEY_S = 83
     const KEY_W = 87
 
@@ -58,10 +65,6 @@ if TARGET == .JAVASCRIPT {
 
     document.addEventListener("keydown", (e HTMLKeyboardEvent) => {
       keys[e.which] = 1
-
-      if e.which == KEY_L {
-        app.bakeLightmap
-      }
     })
 
     document.addEventListener("keyup", (e HTMLKeyboardEvent) => {
@@ -126,11 +129,22 @@ if TARGET == .JAVASCRIPT {
     enableAutomaticRefresh
   }
 
+  @entry if BUILD == .WORKER_THREAD
+  def worker {
+    var main = RenderThread.main
+    dynamic.onmessage = e => {
+      var bytes = main(e.data)
+      assert(bytes != null)
+      dynamic.postMessage(bytes, [bytes.buffer])
+    }
+  }
+
+  @skip if RELEASE
   def enableAutomaticRefresh {
     var source string = null
     var fetch fn() = => {
       var xhr = XMLHttpRequest.new
-      xhr.open("GET", "compiled.js")
+      xhr.open("GET", "main.js")
       xhr.onload = => {
         if source == null { source = xhr.responseText }
         else if source != xhr.responseText { location.reload }

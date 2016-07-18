@@ -1,0 +1,71 @@
+class RenderThread {
+  const _voxels Voxels
+  const _worker Worker
+  var _state = State.IDLE
+
+  def new(voxels Voxels, lightmap Lightmap) {
+    _voxels = voxels
+    _worker = Worker.new("worker.js")
+
+    _worker.onmessage = e => {
+      assert(_state != .IDLE)
+      assert(e.data is Uint8Array)
+
+      var bytes Uint8Array = e.data
+
+      if _state == .BUSY {
+        _state = .IDLE
+
+        if bytes.length != 0 {
+          assert(bytes.length == lightmap.currentData.length)
+          lightmap.currentData.set(bytes)
+        }
+      }
+
+      else {
+        _state = .IDLE
+        update
+      }
+    }
+  }
+
+  def update {
+    if !_voxels.hasEventsToFlush {
+      return
+    }
+
+    if _state == .IDLE {
+      var bytes = _voxels.flushEvents
+      _worker.postMessage(bytes, [bytes.buffer])
+      _state = .BUSY
+    }
+
+    else if _state == .BUSY {
+      _state = .OUTDATED
+    }
+  }
+}
+
+namespace RenderThread {
+  enum State {
+    IDLE
+    BUSY
+    OUTDATED
+  }
+
+  def main fn(Uint8Array) Uint8Array {
+    var lightmap = Lightmap.new(null)
+    var voxels = Voxels.new(null, null, null, lightmap)
+
+    return bytes => {
+      voxels.applyEvents(bytes)
+
+      if !voxels.needsQuadsUpdate {
+        voxels.stepRadiosity
+        return Uint8Array.new(lightmap.currentData)
+      }
+
+      return Uint8Array.new(0)
+    }
+  }
+}

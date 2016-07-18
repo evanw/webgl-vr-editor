@@ -1,0 +1,14 @@
+if TARGET == .JAVASCRIPT {
+  @import
+  class Worker {
+    var onmessage fn(dynamic)
+    var onerror fn(dynamic)
+
+    def new(url string)
+    def new(url string, options StringMap<string>)
+
+    def postMessage(message dynamic)
+    def postMessage(message dynamic, transfer List<ArrayBuffer>)
+    def terminate
+  }
+}
