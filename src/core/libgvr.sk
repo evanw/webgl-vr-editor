@@ -57,9 +57,11 @@ namespace LibGVR {
     }
   }
 
+  # https://store.google.com/product/google_cardboard
   namespace ViewerData {
-    # https://store.google.com/product/google_cardboard
-    const DEFAULT = new(0.0393, 0.0639, [60, 60, 60, 60], 0.035, [0.33582565, 0.5534879])
+    const CARDBOARD_JUNE_2014 = new(0.042, 0.060, [40, 40, 40, 40], 0.035, [0.441, 0.156])
+    const CARDBOARD_MAY_2015 = new(0.0393, 0.0639, [60, 60, 60, 60], 0.035, [0.33582565, 0.5534879])
+    const GOGGLE_TECH_C1_GLASS = new(0.058, 0.065, [50, 50, 50, 50], 0.036, [0.3, 0])
   }
 
   class DeviceData {
@@ -69,7 +71,37 @@ namespace LibGVR {
   }
 
   namespace DeviceData {
+    const NEXUS_5 = new(0.110, 0.062, 0.004)
+    const NEXUS_6 = new(0.133, 0.074, 0.004)
+    const GALAXY_S6 = new(0.114, 0.0635, 0.0035)
+    const GALAXY_NOTE4 = new(0.125, 0.0705, 0.0045)
+    const LG_G3 = new(0.121, 0.068, 0.003)
+    const IPHONE_4 = new(0.075, 0.050, 0.0045)
+    const IPHONE_5 = new(0.089, 0.050, 0.0045)
     const IPHONE_6 = new(0.104, 0.058, 0.005)
+    const IPHONE_6P = new(0.112, 0.068, 0.005)
+
+    def pickFromUserAgent DeviceData {
+      var userAgent string = dynamic.navigator.userAgent
+      var width int = dynamic.screen.width
+      var height int = dynamic.screen.height
+      var w = width < height ? width : height
+      var h = width < height ? height : width
+
+      if "iPhone" in userAgent {
+        if w == 480 && h == 320 { return IPHONE_4 }
+        if w == 568 && h == 320 { return IPHONE_5 }
+        if w == 667 && h == 375 { return IPHONE_6 }
+        if w == 736 && h == 414 { return IPHONE_6P }
+        return null
+      }
+
+      if "Nexus 5" in userAgent { return NEXUS_5 }
+      if "Nexus 6" in userAgent { return NEXUS_6 }
+      if "LG-" in userAgent { return LG_G3 }
+
+      return null
+    }
   }
 
   def distort(coefficients List<double>, r double) double {

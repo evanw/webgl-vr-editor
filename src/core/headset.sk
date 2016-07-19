@@ -40,8 +40,8 @@ class GoogleCardboardHeadset :: Headset {
   const _projectionLeft = Matrix.new
   const _projectionRight = Matrix.new
   const _projection = Matrix.new
-  var _viewer = LibGVR.ViewerData.DEFAULT
-  var _device = LibGVR.DeviceData.IPHONE_6
+  var _viewer = LibGVR.ViewerData.CARDBOARD_MAY_2015
+  var _device = LibGVR.DeviceData.pickFromUserAgent ?? .IPHONE_6
   var _temporalCount = 0
   var _colorTexture GPU.Texture
   var _textureSet GPU.TextureSet
