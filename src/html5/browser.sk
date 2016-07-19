@@ -254,6 +254,14 @@ if TARGET == .JAVASCRIPT {
       def replaceChild(node HTMLElement, child HTMLElement)
       def removeChild(node HTMLElement)
 
+      def requestFullscreen {
+        var callback =
+          (self as dynamic).webkitRequestFullscreen ? (self as dynamic).webkitRequestFullscreen :
+          (self as dynamic).mozRequestFullScreen ? (self as dynamic).mozRequestFullScreen :
+          (self as dynamic).requestFullscreen
+        if callback { callback.call(self) }
+      }
+
       def addEventListener(type string, listener fn()) { HTML.on(self, type, listener) }
       def addEventListener(type string, listener fn(HTMLEvent)) { HTML.on(self, type, listener) }
       def addEventListener(type string, listener fn(HTMLKeyboardEvent)) { HTML.on(self, type, listener) }

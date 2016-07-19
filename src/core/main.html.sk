@@ -54,6 +54,7 @@ if TARGET == .JAVASCRIPT {
     const updateHeadsetButtonState = (e HTMLTouchEvent) => {
       e.preventDefault
       app.updateHeadsetButtonState(!e.touches.isEmpty)
+      canvas.requestFullscreen
     }
 
     style.position = "fixed"
