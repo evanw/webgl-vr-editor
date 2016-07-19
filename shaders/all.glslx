@@ -13,8 +13,9 @@ uniform vec2 distortion;
 
 attribute vec2 coord2;
 attribute vec2 position2;
-attribute vec4 color4;
 attribute vec3 position3;
+attribute vec4 color4;
+attribute vec4 position4;
 
 varying vec2 _coord2;
 varying vec4 _color4;
@@ -86,4 +87,14 @@ export void colorTextureVertex() {
 
 export void colorTextureFragment() {
   gl_FragColor = texture2D(texture, _coord2) * _color4;
+}
+
+export void solidBatchVertex() {
+  _coord2 = position4.zw;
+  _color4 = color4;
+  gl_Position = vec4(position4.xy, 0, 1);
+}
+
+export void solidBatchFragment() {
+  gl_FragColor = _color4 * min(1.0, min(_coord2.x, _coord2.y));
 }

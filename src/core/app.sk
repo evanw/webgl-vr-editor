@@ -41,6 +41,7 @@ class App :: HeadsetDelegate {
   const _colorTextureMaterial GPU.Material
   const _temporalMaterial GPU.Material
   const _temporalQuad GPU.BufferArea
+  const _solidBatch GPU.SolidBatch
   const _font Font
   const _voxels Voxels
   const _lightmap Lightmap
@@ -100,6 +101,7 @@ class App :: HeadsetDelegate {
   def new(context GPU.Context) {
     _context = context
     _pool = GPU.BufferPool.new(context)
+    _solidBatch = GPU.SolidBatch.new(context, _pool)
     _textureMaterial = context.createMaterial(.POSITION_F3_COORD_F2, GLSLX_SOURCE_TEXTURE_VERTEX, GLSLX_SOURCE_TEXTURE_FRAGMENT)
     _colorTextureMaterial = context.createMaterial(.POSITION_F3_COORD_F2_COLOR_B4, GLSLX_SOURCE_COLOR_TEXTURE_VERTEX, GLSLX_SOURCE_COLOR_TEXTURE_FRAGMENT)
     _temporalMaterial = context.createMaterial(.POSITION_F2, GLSLX_SOURCE_TEMPORAL_VERTEX, GLSLX_SOURCE_TEMPORAL_FRAGMENT)
@@ -371,6 +373,7 @@ namespace App {
 namespace GPU.VertexFormat {
   const POSITION_F2 = VertexFormat.new.add(GLSLX_NAME_POSITION2, .FLOAT, 2)
   const POSITION_F3 = VertexFormat.new.add(GLSLX_NAME_POSITION3, .FLOAT, 3)
+  const POSITION_F4_COLOR_B4 = VertexFormat.new.add(GLSLX_NAME_POSITION4, .FLOAT, 4).add(GLSLX_NAME_COLOR4, .BYTE, 4)
   const POSITION_F3_COORD_F2 = VertexFormat.new.add(GLSLX_NAME_POSITION3, .FLOAT, 3).add(GLSLX_NAME_COORD2, .FLOAT, 2)
   const POSITION_F3_COORD_F2_COLOR_B4 = VertexFormat.new.add(GLSLX_NAME_POSITION3, .FLOAT, 3).add(GLSLX_NAME_COORD2, .FLOAT, 2).add(GLSLX_NAME_COLOR4, .BYTE, 4)
 }

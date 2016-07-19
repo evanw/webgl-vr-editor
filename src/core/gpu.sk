@@ -55,6 +55,8 @@ namespace GPU {
     def setDepthMode(mode DepthMode)
     def setTextureSet(textureSet TextureSet)
     def setViewport(x int, y int, width int, height int)
+    def viewportHeight int
+    def viewportWidth int
     def width int
 
     def setBlendState(sourceColor BlendOperation, targetColor BlendOperation, sourceAlpha BlendOperation, targetAlpha BlendOperation, constant double)

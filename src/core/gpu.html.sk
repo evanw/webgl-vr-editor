@@ -42,6 +42,14 @@ if TARGET == .JAVASCRIPT {
         return _height
       }
 
+      def viewportWidth int {
+        return (_currentTextureSet != null ? _currentTextureSet.viewport : _defaultViewport)[2]
+      }
+
+      def viewportHeight int {
+        return (_currentTextureSet != null ? _currentTextureSet.viewport : _defaultViewport)[3]
+      }
+
       def new {
         _gl = document.createElementCanvas.getContextWebGL({
           "alpha": false,
