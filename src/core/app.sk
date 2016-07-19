@@ -51,10 +51,11 @@ class App :: HeadsetDelegate {
   const _temporalMatrix = Matrix.new
   const _inverseModelview = Matrix.new
   const _inverseProjection = Matrix.new
+  const _modelviewProjection = Matrix.new
   const _previousLeftModelview = Matrix.new
   const _previousRightModelview = Matrix.new
   const _orientation = Matrix.new
-  const _traceResult = TraceResult.new
+  const _forwardTraceResult = TraceResult.new
 
   var _googleCardboardheadset GoogleCardboardHeadset = null
   var _passThroughHeadset PassThroughHeadset = null
@@ -145,20 +146,26 @@ class App :: HeadsetDelegate {
     _resetAntiAliasing = false
   }
 
+  def _loadModelview(eye Eye) {
+    var player = _player
+    _modelview
+      .loadIdentity
+      .translateBy(eye == .LEFT ? EYE_SEPARATION_SCALE : eye == .RIGHT ? -EYE_SEPARATION_SCALE : 0, 0, 0)
+      .multiplyBy(_orientation)
+      .translateBy(-player.centerX, -player.centerY, -player.centerZ)
+  }
+
   def drawEye(eye Eye, projection Matrix, previousFrame GPU.Texture, temporalCount int) {
     var player = _player
     var eyeX = player.centerX
     var eyeY = player.centerY
     var eyeZ = player.centerZ
 
-    _modelview
-      .loadIdentity
-      .translateBy(eye == .LEFT ? EYE_SEPARATION_SCALE : eye == .RIGHT ? -EYE_SEPARATION_SCALE : 0, 0, 0)
-      .multiplyBy(_orientation)
-      .translateBy(-eyeX, -eyeY, -eyeZ)
+    _loadModelview(eye)
 
     _textureMaterial.setUniformMat4(GLSLX_NAME_MATRIX_MODELVIEW, _modelview)
     _textureMaterial.setUniformMat4(GLSLX_NAME_MATRIX_PROJECTION, projection)
+    _context.setDepthMode(.READ_WRITE)
     _voxels.draw
 
     _colorTextureMaterial.setUniformMat4(GLSLX_NAME_MATRIX_MODELVIEW, _modelview)
@@ -173,7 +180,6 @@ class App :: HeadsetDelegate {
         Label.PHI, label.depth, i == _labelActiveIndex ? Label.ACTIVE_COLOR : Label.INACTIVE_COLOR)
     }
 
-    _font.placeText("+", 0.05, eyeX, eyeY, eyeZ, _cameraTheta, _cameraPhi, _cameraPhi < -1 ? Label.ACTIVE_DEPTH - 0.1 : _traceResult.distance, .WHITE)
     _font.placeText("-".repeat(111), 0.1, eyeX, eyeY, eyeZ, _toolbarTheta + Math.PI, -1, 2, .WHITE)
     _font.draw
 
@@ -194,13 +200,73 @@ class App :: HeadsetDelegate {
       _temporalMaterial.setUniformSampler(GLSLX_NAME_TEXTURE, previousFrame, 0)
       _temporalMaterial.setUniformVec4(GLSLX_NAME_VIEWPORT, eye == .RIGHT ? 0.5 : 0, 0, 0.5, 1)
       _temporalMaterial.setUniformMat4(GLSLX_NAME_MATRIX_TEMPORAL, _temporalMatrix)
-      _context.draw(.TRIANGLE_STRIP, _temporalMaterial, _temporalQuad)
+      _context.draw(.TRIANGLE_STRIP, _temporalMaterial, _temporalQuad, .NO_CULLING)
     }
 
     _context.setCopyBlendState
 
     if eye == .LEFT { _previousLeftModelview.copyFrom(_modelview) }
     else { _previousRightModelview.copyFrom(_modelview) }
+  }
+
+  def drawEyeUI(eye Eye, projection Matrix, distort fn(Vector2)) {
+    var width = _context.viewportWidth
+    var height = _context.viewportHeight
+
+    _loadModelview(eye)
+    _modelviewProjection.createScale(width, height, 1)
+    _modelviewProjection.translateBy(0.5, 0.5, 0)
+    _modelviewProjection.scaleBy(0.5, 0.5, 1)
+    _modelviewProjection.multiplyBy(projection)
+    _modelviewProjection.multiplyBy(_modelview)
+
+    _context.setDepthMode(.NONE)
+    _context.setPremultipliedBlendState
+    _solidBatch.resize(width, height)
+    _drawLookCircle(distort)
+    _solidBatch.flush
+  }
+
+  def _drawLookCircle(distort fn(Vector2)) {
+    var result = _forwardTraceResult
+    var distance = result.distance
+    var n = Delta.new((result.normalX != 0) as int, (result.normalY != 0) as int, (result.normalZ != 0) as int)
+    var u Delta = n == .X ? .Z : .X, ux = u.x, uy = u.y, uz = u.z
+    var v Delta = n == .Y ? .Z : .Y, vx = v.x, vy = v.y, vz = v.z
+    var player = _player
+    var orientation = _orientation
+    var px = player.centerX - orientation.m20 * distance
+    var py = player.centerY - orientation.m21 * distance
+    var pz = player.centerZ - orientation.m22 * distance
+    var point2 = Vector2.allocate
+    var point3 = Vector3.allocate
+    var height = _context.viewportHeight as double
+    var radius = 5 * distance / height
+
+    _coordinates.resize(0, 0)
+
+    for i in 0..10 {
+      var angle = 2 * Math.PI * i / 10
+      var du = Math.cos(angle) * radius
+      var dv = Math.sin(angle) * radius
+      point3.setTo(
+        px + ux * du + vx * dv,
+        py + uy * du + vy * dv,
+        pz + uz * du + vz * dv)
+      _modelviewProjection.transformPoint(point3)
+      point2.setTo(point3.x, point3.y)
+      if distort != null {
+        distort(point2)
+      }
+      _coordinates.append(point2.x)
+      _coordinates.append(point2.y)
+    }
+
+    _solidBatch.strokeNonOverlappingPolyline(_coordinates, Color.new(0, 0, 0, 127), 3, .CLOSED)
+    _solidBatch.strokeNonOverlappingPolyline(_coordinates, Color.new(127, 127, 127, 127), 1, .CLOSED)
+
+    point2.free
+    point3.free
   }
 
   def updateKeyboardVelocity(deltaX double, deltaZ double) {
@@ -270,7 +336,7 @@ class App :: HeadsetDelegate {
         .rotateBy(0, 1, 0, _mouseAngleY)
     }
 
-    var result = _traceResult
+    var result = _forwardTraceResult
     var speed = seconds * 4
     var speedX = _keyboardVelocityX * speed
     var speedZ = _keyboardVelocityZ * speed
@@ -350,7 +416,7 @@ class App :: HeadsetDelegate {
   }
 
   def _addCell(cell Cell) {
-    var result = _traceResult
+    var result = _forwardTraceResult
     var x = result.cellX + result.normalX
     var y = result.cellY + result.normalY
     var z = result.cellZ + result.normalZ
@@ -364,6 +430,7 @@ class App :: HeadsetDelegate {
 
 namespace App {
   const EYE_SEPARATION_SCALE = 0.1
+  const _coordinates List<double> = []
 
   def wrapAngle(radians double) double {
     return radians - Math.floor(radians / (2 * Math.PI)) * (2 * Math.PI)

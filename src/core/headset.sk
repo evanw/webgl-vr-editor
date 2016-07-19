@@ -15,6 +15,7 @@ interface Headset {
 
 interface HeadsetDelegate {
   def drawEye(eye Eye, projection Matrix, previousFrame GPU.Texture, temporalCount int)
+  def drawEyeUI(eye Eye, projection Matrix, distort fn(Vector2))
 }
 
 class PassThroughHeadset :: Headset {
@@ -24,8 +25,9 @@ class PassThroughHeadset :: Headset {
 
   def draw(temporal Temporal) {
     _context.clear(.ALL)
-    _context.setDepthMode(.READ_WRITE)
-    _delegate.drawEye(.CENTER, _projection.createPerspective(60 * Math.PI / 180, _context.width / (_context.height as double), 0.1, 100), null, 0)
+    _projection.createPerspective(60 * Math.PI / 180, _context.width / (_context.height as double), 0.1, 100)
+    _delegate.drawEye(.CENTER, _projection, null, 0)
+    _delegate.drawEyeUI(.CENTER, _projection, null)
   }
 }
 
@@ -44,6 +46,8 @@ class GoogleCardboardHeadset :: Headset {
   var _colorTexture GPU.Texture
   var _textureSet GPU.TextureSet
   var _temporalColorTexture GPU.Texture
+  var _distortLeft fn(Vector2) = null
+  var _distortRight fn(Vector2) = null
 
   def new(context GPU.Context, pool GPU.BufferPool, delegate HeadsetDelegate) {
     _context = context
@@ -74,6 +78,28 @@ class GoogleCardboardHeadset :: Headset {
     _projectionLeft.createFrustum(lensFrustum[0] * near, lensFrustum[2] * near, lensFrustum[3] * near, lensFrustum[1] * near, near, 1000)
     _projectionRight.copyFrom(_projectionLeft)
     _projectionRight.m02 = -_projectionRight.m02
+
+    _distortLeft = point => {
+      var width = _context.width
+      var height = _context.height
+      var x = lensFrustum[0] + (lensFrustum[2] - lensFrustum[0]) * point.x / width * 2
+      var y = lensFrustum[3] + (lensFrustum[1] - lensFrustum[3]) * point.y / height
+      var r = Math.sqrt(x * x + y * y)
+      var scale = LibGVR.distort(_viewer.inverseDistortionCoefficients, r) / r
+      point.x = (viewport[0] + viewport[2] * (x * scale - noLensFrustum[0]) / (noLensFrustum[2] - noLensFrustum[0])) * width
+      point.y = (viewport[1] + viewport[3] * (y * scale - noLensFrustum[3]) / (noLensFrustum[1] - noLensFrustum[3])) * height
+    }
+
+    _distortRight = point => {
+      var width = _context.width
+      var height = _context.height
+      var x = lensFrustum[0] + (lensFrustum[2] - lensFrustum[0]) * (1 - point.x / width * 2)
+      var y = lensFrustum[3] + (lensFrustum[1] - lensFrustum[3]) * point.y / height
+      var r = Math.sqrt(x * x + y * y)
+      var scale = LibGVR.distort(_viewer.inverseDistortionCoefficients, r) / r
+      point.x = (0.5 - viewport[0] - viewport[2] * (x * scale - noLensFrustum[0]) / (noLensFrustum[2] - noLensFrustum[0])) * width
+      point.y = (viewport[1] + viewport[3] * (y * scale - noLensFrustum[3]) / (noLensFrustum[1] - noLensFrustum[3])) * height
+    }
   }
 
   def draw(temporal Temporal) {
@@ -102,14 +128,12 @@ class GoogleCardboardHeadset :: Headset {
 
     # Draw the left eye
     context.setViewport(0, 0, width / 2, height)
-    context.setDepthMode(.READ_WRITE)
     _projection.createTranslate(temporalShiftX, temporalShiftY, 0)
     _projection.multiplyBy(_projectionLeft)
     _delegate.drawEye(.LEFT, _projection, _temporalColorTexture, _temporalCount)
 
     # Draw the right eye
     context.setViewport(width / 2, 0, (width + 1) / 2, height)
-    context.setDepthMode(.READ_WRITE)
     _projection.createTranslate(temporalShiftX, temporalShiftY, 0)
     _projection.multiplyBy(_projectionRight)
     _delegate.drawEye(.RIGHT, _projection, _temporalColorTexture, _temporalCount)
@@ -122,7 +146,15 @@ class GoogleCardboardHeadset :: Headset {
     _lensWarpMaterial.setUniformSampler(GLSLX_NAME_TEXTURE, _colorTexture, 0)
     context.setViewport(0, 0, width, height)
     context.setDepthMode(.NONE)
-    context.draw(.TRIANGLE_STRIP, _lensWarpMaterial, _quadArea)
+    context.draw(.TRIANGLE_STRIP, _lensWarpMaterial, _quadArea, .NO_CULLING)
+
+    # Draw the UI for the left eye
+    context.setViewport(0, 0, width / 2, height)
+    _delegate.drawEyeUI(.LEFT, _projectionLeft, _distortLeft)
+
+    # Draw the UI for the right eye
+    context.setViewport(width / 2, 0, (width + 1) / 2, height)
+    _delegate.drawEyeUI(.RIGHT, _projectionRight, _distortRight)
 
     # Temporal anti-aliasing uses ping-pong rendering
     var swap = _colorTexture

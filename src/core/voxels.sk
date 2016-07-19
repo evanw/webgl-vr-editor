@@ -204,7 +204,7 @@ class Voxels {
 
     # Allocate all areas next, won't invalidate the lightmap
     for chunk in _chunkList {
-      _context.draw(.TRIANGLES, _material, chunk.area(_pool))
+      _context.draw(.TRIANGLES, _material, chunk.area(_pool), .CULL_BACK_FACES)
     }
   }
 

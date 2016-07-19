@@ -6,6 +6,7 @@ if TARGET == .JAVASCRIPT {
       var _blendOperationMap IntMap<GLenum> = null
       var _blendOperations = COPY_BLEND_OPERATIONS
       var _contextResetHandlers List<fn()> = []
+      var _cullBackFaces = false
       var _currentTextureSet HTMLTextureSet = null
       var _defaultViewport = [0, 0, 0, 0]
       var _depthMode = DepthMode.READ_WRITE
@@ -78,6 +79,7 @@ if TARGET == .JAVASCRIPT {
 
         canvas.addEventListener("webglcontextrestored", => {
           _attributeCount = 0
+          _cullBackFaces = false
           _forceStateUpdate = true
           _generation++
           for handler in _contextResetHandlers {
@@ -135,7 +137,6 @@ if TARGET == .JAVASCRIPT {
 
       def beginFrame {
         setTextureSet(null)
-        _gl.enable(_gl.CULL_FACE)
         _gl.pixelStorei(_gl.UNPACK_FLIP_Y_WEBGL, 1)
         _gl.pixelStorei(_gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, 1)
       }
@@ -157,7 +158,7 @@ if TARGET == .JAVASCRIPT {
         viewport[3] = height
       }
 
-      def draw(primitive Primitive, material Material, area BufferArea) {
+      def draw(primitive Primitive, material Material, area BufferArea, cull Cull) {
         if area == null {
           return
         }
@@ -172,9 +173,12 @@ if TARGET == .JAVASCRIPT {
         HTMLVertexBuffer.from(area.buffer).prepare
         _updateFormat(material.format)
 
-        # Draw now that everything is ready
+        # Other state updates
+        _updateCullState(cull)
         _updateBlendState
         _updateDepthMode
+
+        # Draw now that everything is ready
         _gl.drawArrays(
           primitive == .TRIANGLE_STRIP ? _gl.TRIANGLE_STRIP :
           primitive == .LINES ? _gl.LINES :
@@ -184,6 +188,18 @@ if TARGET == .JAVASCRIPT {
 
         # Forced state updates are done once after a context loss
         _forceStateUpdate = false
+      }
+
+      def _updateCullState(cull Cull) {
+        if cull == .CULL_BACK_FACES && !_cullBackFaces {
+          _cullBackFaces = true
+          _gl.enable(_gl.CULL_FACE)
+        }
+
+        else if cull == .NO_CULLING && _cullBackFaces {
+          _cullBackFaces = false
+          _gl.disable(_gl.CULL_FACE)
+        }
       }
 
       def setDepthMode(mode DepthMode) {

@@ -52,7 +52,7 @@ namespace LibGVR {
     const distortionCoefficients List<double>
 
     def inverseDistortionCoefficients List<double> {
-      _cachedInverse ?= LibGVR.approximateInverse(distortionCoefficients)
+      _cachedInverse ?= approximateInverse(distortionCoefficients)
       return _cachedInverse
     }
   }
@@ -197,14 +197,12 @@ namespace LibGVR {
     # valid. The elimination doesn't fill in eliminated 0 values.
 
     var x List<double> = []
-    for i in 0..n {
-      x.append(0)
-    }
+    x.resize(n, 0)
 
     # Back substitution.
     for j = n - 1; j >= 0; --j {
       var v = y[j]
-      for i in 0..j + 1 {
+      for i in j + 1..n {
         v -= a[j][i] * x[i]
       }
       x[j] = v / a[j][j]

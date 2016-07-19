@@ -121,7 +121,7 @@ class Font {
     }
 
     var area = _pool.allocate(GPU.VertexFormat.POSITION_F3_COORD_F2_COLOR_B4, _vertices.bytes)
-    _context.draw(.TRIANGLES, _material, area)
+    _context.draw(.TRIANGLES, _material, area, .NO_CULLING)
     area.free
 
     # Clear the list instead of allocating a new one

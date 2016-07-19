@@ -1,6 +1,11 @@
 const DEGREES_TO_RADIANS = Math.PI / 180
 
 namespace GPU {
+  enum Cull {
+    NO_CULLING
+    CULL_BACK_FACES
+  }
+
   enum BlendOperation {
     ZERO
     ONE
@@ -48,7 +53,7 @@ namespace GPU {
     def createTextureSet(color Texture, depthStencil Texture) TextureSet
     def createVertexBuffer(byteCount int) VertexBuffer
     def currentTextureSet TextureSet
-    def draw(primitive Primitive, material Material, area BufferArea)
+    def draw(primitive Primitive, material Material, area BufferArea, cull Cull)
     def height int
     def removeContextResetHandler(callback fn())
     def resize(width int, height int)

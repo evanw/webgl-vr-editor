@@ -19,6 +19,25 @@ class Matrix {
   var m32 = 0.0
   var m33 = 1.0
 
+  def transformPoint(v Vector3) {
+    var x = v.x
+    var y = v.y
+    var z = v.z
+    var scale = 1 / (m30 * x + m31 * y + m32 * z + m33)
+    v.x = (m00 * x + m01 * y + m02 * z + m03) * scale
+    v.y = (m10 * x + m11 * y + m12 * z + m13) * scale
+    v.z = (m20 * x + m21 * y + m22 * z + m23) * scale
+  }
+
+  def transformDirection(v Vector3) {
+    var x = v.x
+    var y = v.y
+    var z = v.z
+    v.x = m00 * x + m01 * y + m02 * z + m03
+    v.y = m10 * x + m11 * y + m12 * z + m13
+    v.z = m20 * x + m21 * y + m22 * z + m23
+  }
+
   def loadIdentity Matrix {
     copyFrom(_identity)
     return self
