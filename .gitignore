@@ -1,5 +1,5 @@
 .DS_Store
-/src/core/shaders.sk
-/www/main.js
-/www/worker.js
-/node_modules/
+/v1/src/core/shaders.sk
+/v1/www/main.js
+/v1/www/worker.js
+node_modules/
