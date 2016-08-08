@@ -95,6 +95,8 @@ if TARGET == .JAVASCRIPT {
 
     class HTMLWindow {
       const top HTMLWindow
+      const location HTMLLocation
+      const document HTMLDocument
 
       def orientation double { return (self as dynamic).orientation ? (self as dynamic).orientation : 0 }
       def addEventListener(type string, listener fn()) { HTML.on(self, type, listener) }
@@ -107,7 +109,6 @@ if TARGET == .JAVASCRIPT {
       const head HTMLElement
       const body HTMLElement
       const hidden bool
-      const pointerLockElement HTMLElement
 
       var title string
       def exitPointerLock
@@ -134,6 +135,14 @@ if TARGET == .JAVASCRIPT {
       def removeEventListener(type string, listener fn(HTMLTouchEvent)) { HTML.off(self, type, listener) }
       def removeEventListener(type string, listener fn(HTMLKeyboardEvent)) { HTML.off(self, type, listener) }
       def removeEventListener(type string, listener fn(HTMLWheelEvent)) { HTML.off(self, type, listener) }
+
+      def pointerLockElement HTMLElement {
+        var this = self as dynamic
+        return
+          this.mozPointerLockElement ? this.mozPointerLockElement :
+          this.pointerLockElement ? this.pointerLockElement :
+          null
+      }
     }
 
     class HTMLLocation {
@@ -208,8 +217,8 @@ if TARGET == .JAVASCRIPT {
       const y int
       const dataTransfer HTMLDataTransfer
 
-      def movementX int { return (self as dynamic).movementX | 0 }
-      def movementY int { return (self as dynamic).movementY | 0 }
+      def movementX int { return (self as dynamic).mozMovementX | (self as dynamic).movementX | 0 }
+      def movementY int { return (self as dynamic).mozMovementY | (self as dynamic).movementY | 0 }
     }
 
     class HTMLTouch {
@@ -257,10 +266,11 @@ if TARGET == .JAVASCRIPT {
       def removeChild(node HTMLElement)
 
       def requestFullscreen {
+        var this = self as dynamic
         var callback =
-          (self as dynamic).webkitRequestFullscreen ? (self as dynamic).webkitRequestFullscreen :
-          (self as dynamic).mozRequestFullScreen ? (self as dynamic).mozRequestFullScreen :
-          (self as dynamic).requestFullscreen
+          this.webkitRequestFullscreen ? this.webkitRequestFullscreen :
+          this.mozRequestFullScreen ? this.mozRequestFullScreen :
+          this.requestFullscreen
         if callback { callback.call(self) }
       }
 
@@ -376,13 +386,23 @@ if TARGET == .JAVASCRIPT {
       var height int
 
       def toDataURL string
-      def requestPointerLock
+
+      def requestPointerLock {
+        var this = self as dynamic
+        var callback =
+          this.mozRequestPointerLock ? this.mozRequestPointerLock :
+          this.requestPointerLock
+        if callback { callback.call(self) }
+      }
     }
 
     class HTMLIframeElement : HTMLElement {
       var src string
       var onload fn()
       var onerror fn()
+
+      const contentWindow HTMLWindow
+      const contentDocument HTMLDocument
     }
 
     class CSSStyleDeclaration {

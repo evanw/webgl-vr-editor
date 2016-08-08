@@ -63,8 +63,9 @@ if TARGET == .JAVASCRIPT {
           throw Error.new("Could not initialize WebGL")
         }
 
-        var canvas = _gl.canvas
-        var style = canvas.style
+        const loadExtensions = => _gl.getExtension("OES_standard_derivatives")
+        const canvas = _gl.canvas
+        const style = canvas.style
         canvas.width = 0
         canvas.height = 0
         style.display = "block"
@@ -78,6 +79,7 @@ if TARGET == .JAVASCRIPT {
         })
 
         canvas.addEventListener("webglcontextrestored", => {
+          loadExtensions()
           _attributeCount = 0
           _cullBackFaces = false
           _forceStateUpdate = true
@@ -112,6 +114,7 @@ if TARGET == .JAVASCRIPT {
           PixelFilter.LINEAR_MIPMAP_LINEAR: _gl.LINEAR_MIPMAP_LINEAR,
         }
 
+        loadExtensions()
         hackToAvoidMissingTextureWarningInChrome = HTMLTexture.new(self, .RGBA_NEAREST_CLAMP, 1, 1, Uint8Array.new(4))
       }
 
@@ -255,20 +258,22 @@ if TARGET == .JAVASCRIPT {
 
       def createTextureFromURL(format TextureFormat, url string) Texture {
         var texture = createTexture(format, 1, 1, null)
-        var image = document.createElementImage
+        _fetchPixels(url, (width, height, pixels) => texture.resize(width, height, pixels))
+        return texture
+      }
 
-        image.onload = => {
-          var width = image.width
-          var height = image.height
-          var context = _imageDecodeContext ?= document.createElementCanvas.getContext2D
-          var canvas = context.canvas
-          canvas.width = width
-          canvas.height = height
-          context.drawImage(image, 0, 0)
-          texture.resize(width, height, Uint8Array.new(context.getImageData(0, 0, width, height).data.buffer))
-        }
-
-        image.src = url
+      def createTextureFromURLs(format TextureFormat, colorURL string, alphaURL string) Texture {
+        var texture = createTexture(format, 1, 1, null)
+        _fetchPixels(colorURL, (colorWidth, colorHeight, colorPixels) => {
+          _fetchPixels(alphaURL, (alphaWidth, alphaHeight, alphaPixels) => {
+            if colorWidth == alphaWidth && colorHeight == alphaHeight {
+              for i = 0, n = colorWidth * alphaWidth * 4; i < n; i += 4 {
+                colorPixels[i + 3] = alphaPixels[i]
+              }
+            }
+            texture.resize(colorWidth, colorHeight, colorPixels)
+          })
+        })
         return texture
       }
 
@@ -375,6 +380,23 @@ if TARGET == .JAVASCRIPT {
           gl.disableVertexAttribArray(_attributeCount)
         }
         _attributeCount = count
+      }
+
+      def _fetchPixels(url string, callback fn(int, int, Uint8Array)) {
+        var image = document.createElementImage
+
+        image.onload = => {
+          var width = image.width
+          var height = image.height
+          var context = _imageDecodeContext ?= document.createElementCanvas.getContext2D
+          var canvas = context.canvas
+          canvas.width = width
+          canvas.height = height
+          context.drawImage(image, 0, 0)
+          callback(width, height, Uint8Array.new(context.getImageData(0, 0, width, height).data.buffer))
+        }
+
+        image.src = url
       }
     }
 

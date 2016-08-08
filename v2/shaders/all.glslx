@@ -1,9 +1,12 @@
 // Do not use mediump, causes vertices to wiggle on iOS
 precision highp float;
 
-uniform sampler2D texture;
+uniform sampler2D diffuseTexture;
+uniform sampler2D normalTexture;
+
 uniform mat4 matrixModelview;
 uniform mat4 matrixProjection;
+uniform vec3 eye;
 
 uniform vec4 lensFrustum;
 uniform vec4 noLensFrustum;
@@ -14,7 +17,9 @@ uniform float flip;
 attribute vec2 coord2;
 attribute vec3 position3;
 
-varying vec3 _coord3;
+varying float _mask;
+varying vec2 _coord2;
+varying vec3 _position3;
 
 // Frustum coordinates
 const int LEFT = 0;
@@ -29,42 +34,68 @@ const int W = 2;
 const int H = 3;
 
 export void maskVertex() {
-  _coord3 = position3;
+  _mask = position3.z;
   gl_Position = vec4(position3.x * flip, position3.y, 0, 1);
 }
 
 export void maskFragment() {
-  gl_FragColor = vec4(_coord3.z);
+  gl_FragColor = vec4(_mask);
 }
 
 export void worldVertex() {
-  _coord3 = vec3(coord2, 1);
+  _coord2 = coord2;
+  _position3 = position3.xyz;
   gl_Position = matrixProjection * matrixModelview * vec4(position3, 1);
 }
 
 export void worldVertexDistorted() {
   vec4 position = matrixProjection * matrixModelview * vec4(position3, 1);
-  float perspectiveDivide = 1.0 / abs(position.w);
-
-  // Divide by w for perspective-correct texturing, at least as correct as
-  // you can get with a distortion effect on top
-  _coord3 = vec3(coord2, 1) * perspectiveDivide;
-
-  // Do the perspective divide now to get screen-space coordinates
-  position *= perspectiveDivide;
+  float w = abs(position.w);
 
   // Apply the distortion correction directly in the vertex shader since that's
-  // much faster than rendering to a texture and distorting the texture
-  float p = mix(lensFrustum[LEFT], lensFrustum[RIGHT], (0.5 + position.x * 0.5 * flip - viewport[X]) / viewport[W]);
-  float q = mix(lensFrustum[BOTTOM], lensFrustum[TOP], (0.5 + position.y * 0.5 - viewport[Y]) / viewport[H]);
+  // much faster than rendering to a texture and distorting the texture. Make
+  // sure to temporarily undo the perspective divide by the "w" coordinate.
+  // Then multiply "w" back so the fragment shader is free of dependent reads.
+  float p = mix(lensFrustum[LEFT], lensFrustum[RIGHT], (0.5 + position.x / w * 0.5 * flip - viewport[X]) / viewport[W]);
+  float q = mix(lensFrustum[BOTTOM], lensFrustum[TOP], (0.5 + position.y / w * 0.5 - viewport[Y]) / viewport[H]);
   float r2 = p * p + q * q;
   float d = 1.0 + r2 * (inverseDistortion.x + r2 * (inverseDistortion.y + r2 * (inverseDistortion.z + r2 * inverseDistortion.w)));
-  position.x = ((p * d - noLensFrustum[LEFT]) / (noLensFrustum[RIGHT] - noLensFrustum[LEFT]) * 2.0 - 1.0) * flip;
-  position.y = (q * d - noLensFrustum[BOTTOM]) / (noLensFrustum[TOP] - noLensFrustum[BOTTOM]) * 2.0 - 1.0;
+  position.x = ((p * d - noLensFrustum[LEFT]) / (noLensFrustum[RIGHT] - noLensFrustum[LEFT]) * 2.0 - 1.0) * w * flip;
+  position.y = ((q * d - noLensFrustum[BOTTOM]) / (noLensFrustum[TOP] - noLensFrustum[BOTTOM]) * 2.0 - 1.0) * w;
 
+  _coord2 = coord2;
+  _position3 = position3.xyz;
   gl_Position = position;
 }
 
 export void worldFragment() {
-  gl_FragColor = vec4(_coord3.xy / _coord3.z, 0, 1);
+  vec3 diffuseColor = texture2D(diffuseTexture, _coord2).rgb;
+  vec4 normalSample = texture2D(normalTexture, _coord2);
+  vec3 normalMap = normalSample.rgb * 2.0 - 1.0;
+  float specularColor = normalSample.a;
+
+  // Reconstruct the world-space normal using tangent space
+  vec3 dpx = dFdx(_position3);
+  vec3 dpy = dFdy(_position3);
+  vec2 dcx = dFdx(_coord2);
+  vec2 dcy = dFdy(_coord2);
+  vec3 s = normalize(dpx * dcx.s + dpy * dcy.s);
+  vec3 t = normalize(dpx * dcx.t + dpy * dcy.t);
+  vec3 p = normalize(cross(dpx, dpy));
+  vec3 worldNormal = normalize(s * normalMap.s + t * normalMap.t + p * normalMap.p);
+
+  // Compute BRDF input vectors
+  vec3 light = vec3(6, 6, -6);
+  vec3 toLight = light - _position3;
+  float distance = length(toLight);
+  toLight /= distance;
+  vec3 toEye = normalize(eye - _position3);
+
+  // Compute phong lighting
+  float attenuation = distance * (1.0 / 32.0);
+  float scale = 1.0 / ((1.0 + attenuation) * (1.0 + attenuation));
+  float diffuseWeight = max(0.0, dot(toLight, worldNormal));
+  float specularWeight = max(0.0, dot(toLight, reflect(-toEye, worldNormal)));
+  specularWeight = pow(specularWeight, 128.0);
+  gl_FragColor = vec4((diffuseColor * diffuseWeight + specularColor * specularWeight) * scale, 1);
 }

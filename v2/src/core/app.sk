@@ -11,6 +11,8 @@ class App :: HeadsetDelegate {
   const _context GPU.Context
   const _pool GPU.BufferPool
   const _world World
+  const _diffuseTexture GPU.Texture
+  const _normalTexture GPU.Texture
 
   # Headsets
   var _passThroughHeadset PassThroughHeadset = null
@@ -18,9 +20,10 @@ class App :: HeadsetDelegate {
   var _headset Headset = null
 
   # Input info
+  const _keyboardVelocity = Vector3.new
   var _headsetButtonState = false
   var _mouseButtonState = false
-  const _keyboardVelocity = Vector3.new
+  var _fps = 0.0
 
   # Camera info
   const _modelviewMatrix = Matrix.new
@@ -44,7 +47,10 @@ class App :: HeadsetDelegate {
     _context = context
     _pool = GPU.BufferPool.new(context)
     _world = World.new(context, _pool)
+    _diffuseTexture = context.createTextureFromURL(.RGBA_LINEAR_MIPMAP_LINEAR_REPEAT, "pk02_floor08b_C.jpg")
+    _normalTexture = context.createTextureFromURLs(.RGBA_LINEAR_MIPMAP_LINEAR_REPEAT, "pk02_floor08b_N.jpg", "pk02_floor08b_S.jpg")
     _passThroughHeadset = PassThroughHeadset.new(_context, self)
+    _eye.setTo(0, 0, 6)
   }
 
   def updateHeadsetButtonState(value bool) {
@@ -76,6 +82,9 @@ class App :: HeadsetDelegate {
 
     worldMaterial.setUniformMat4(GLSLX_NAME_MATRIX_MODELVIEW, _modelviewMatrix)
     worldMaterial.setUniformMat4(GLSLX_NAME_MATRIX_PROJECTION, projectionMatrix)
+    worldMaterial.setUniformSampler(GLSLX_NAME_DIFFUSE_TEXTURE, _diffuseTexture, 0)
+    worldMaterial.setUniformSampler(GLSLX_NAME_NORMAL_TEXTURE, _normalTexture, 1)
+    worldMaterial.setUniformVec3(GLSLX_NAME_EYE, _eye.x, _eye.y, _eye.z)
 
     _world.draw(worldMaterial)
   }
@@ -123,6 +132,10 @@ class App :: HeadsetDelegate {
       _eye.z += (orientation.m02 * speed.x + orientation.m12 * speed.y + orientation.m22 * speed.z) * scale
     }
     speed.free
+
+    # Update the FPS indicator
+    _fps = _fps * 0.9 + 0.1 / seconds
+    (window.top as dynamic).document.title = "\((_fps as dynamic).toFixed(1))fps"
   }
 
   def updateKeyboardVelocity(x double, y double, z double) {

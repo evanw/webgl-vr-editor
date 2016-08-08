@@ -50,6 +50,7 @@ namespace GPU {
     def createTexture(format TextureFormat, width int, height int) Texture { return createTexture(format, width, height, null) }
     def createTexture(format TextureFormat, width int, height int, pixels Uint8Array) Texture
     def createTextureFromURL(format TextureFormat, url string) Texture
+    def createTextureFromURLs(format TextureFormat, colorURL string, alphaURL string) Texture
     def createTextureSet(color Texture, depthStencil Texture) TextureSet
     def createVertexBuffer(byteCount int) VertexBuffer
     def currentTextureSet TextureSet

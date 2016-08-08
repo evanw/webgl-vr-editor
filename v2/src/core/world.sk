@@ -6,17 +6,27 @@ class World {
   def draw(material GPU.Material) {
     if _areaForDebugging == null {
       var data = DataArray.new
-      const COUNT = 16
 
-      for i in 0..COUNT * COUNT {
-        var s = i % COUNT - COUNT / 2
-        var t = i / COUNT - COUNT / 2
-        _addQuadForDebugging(data, s, t, -COUNT / 2, 1, 0, 0, 0, 1, 0)
-        _addQuadForDebugging(data, s, t, COUNT / 2, 0, 1, 0, 1, 0, 0)
-        _addQuadForDebugging(data, s, -COUNT / 2, t, 0, 0, 1, 1, 0, 0)
-        _addQuadForDebugging(data, s, COUNT / 2, t, 1, 0, 0, 0, 0, 1)
-        _addQuadForDebugging(data, -COUNT / 2, s, t, 0, 1, 0, 0, 0, 1)
-        _addQuadForDebugging(data, COUNT / 2, s, t, 0, 0, 1, 0, 1, 0)
+      for i in 0..OUTER_COUNT * OUTER_COUNT {
+        var s = i % OUTER_COUNT - OUTER_COUNT / 2
+        var t = i / OUTER_COUNT - OUTER_COUNT / 2
+        _addQuadForDebugging(data, s, t, -OUTER_COUNT / 2, 1, 0, 0, 0, 1, 0)
+        _addQuadForDebugging(data, s, t, OUTER_COUNT / 2, 0, 1, 0, 1, 0, 0)
+        _addQuadForDebugging(data, s, -OUTER_COUNT / 2, t, 0, 0, 1, 1, 0, 0)
+        _addQuadForDebugging(data, s, OUTER_COUNT / 2, t, 1, 0, 0, 0, 0, 1)
+        _addQuadForDebugging(data, -OUTER_COUNT / 2, s, t, 0, 1, 0, 0, 0, 1)
+        _addQuadForDebugging(data, OUTER_COUNT / 2, s, t, 0, 0, 1, 0, 1, 0)
+      }
+
+      for i in 0..INNER_COUNT * INNER_COUNT {
+        var s = i % INNER_COUNT - INNER_COUNT / 2
+        var t = i / INNER_COUNT - INNER_COUNT / 2
+        _addQuadForDebugging(data, s, t, -INNER_COUNT / 2, 0, 1, 0, 1, 0, 0)
+        _addQuadForDebugging(data, s, t, INNER_COUNT / 2, 1, 0, 0, 0, 1, 0)
+        _addQuadForDebugging(data, s, -INNER_COUNT / 2, t, 1, 0, 0, 0, 0, 1)
+        _addQuadForDebugging(data, s, INNER_COUNT / 2, t, 0, 0, 1, 1, 0, 0)
+        _addQuadForDebugging(data, -INNER_COUNT / 2, s, t, 0, 0, 1, 0, 1, 0)
+        _addQuadForDebugging(data, INNER_COUNT / 2, s, t, 0, 1, 0, 0, 0, 1)
       }
 
       _areaForDebugging = _pool.allocate(GPU.VertexFormat.POSITION_F3_COORD_F2, data.bytes)
@@ -27,12 +37,15 @@ class World {
 }
 
 namespace World {
+  const OUTER_COUNT = 16
+  const INNER_COUNT = 4
+  const VERTEX_DENSITY = 4
+  const TEXTURE_SCALE = 0.25
+
   def _addQuadForDebugging(array DataArray,
     x double, y double, z double,
     ux double, uy double, uz double,
     vx double, vy double, vz double) {
-
-    const VERTEX_DENSITY = 4
 
     for vi in 0..VERTEX_DENSITY {
       var v0 = vi * (1.0 / VERTEX_DENSITY)
@@ -58,41 +71,48 @@ namespace World {
         var y11 = y + uy * u1 + vy * v1
         var z11 = z + uz * u1 + vz * v1
 
+        var s0 = (x00 * ux + y00 * uy + z00 * uz - INNER_COUNT / 2) * TEXTURE_SCALE
+        var t0 = (x00 * vx + y00 * vy + z00 * vz - INNER_COUNT / 2) * TEXTURE_SCALE
+        s0 -= Math.floor(s0)
+        t0 -= Math.floor(t0)
+        var s1 = s0 + TEXTURE_SCALE / VERTEX_DENSITY
+        var t1 = t0 + TEXTURE_SCALE / VERTEX_DENSITY
+
         array.appendFloat(x00)
         array.appendFloat(y00)
         array.appendFloat(z00)
-        array.appendFloat(u0)
-        array.appendFloat(v0)
+        array.appendFloat(s0)
+        array.appendFloat(t0)
 
         array.appendFloat(x10)
         array.appendFloat(y10)
         array.appendFloat(z10)
-        array.appendFloat(u1)
-        array.appendFloat(v0)
+        array.appendFloat(s1)
+        array.appendFloat(t0)
 
         array.appendFloat(x11)
         array.appendFloat(y11)
         array.appendFloat(z11)
-        array.appendFloat(u1)
-        array.appendFloat(v1)
+        array.appendFloat(s1)
+        array.appendFloat(t1)
 
         array.appendFloat(x00)
         array.appendFloat(y00)
         array.appendFloat(z00)
-        array.appendFloat(u0)
-        array.appendFloat(v0)
+        array.appendFloat(s0)
+        array.appendFloat(t0)
 
         array.appendFloat(x11)
         array.appendFloat(y11)
         array.appendFloat(z11)
-        array.appendFloat(u1)
-        array.appendFloat(v1)
+        array.appendFloat(s1)
+        array.appendFloat(t1)
 
         array.appendFloat(x01)
         array.appendFloat(y01)
         array.appendFloat(z01)
-        array.appendFloat(u0)
-        array.appendFloat(v1)
+        array.appendFloat(s0)
+        array.appendFloat(t1)
       }
     }
   }

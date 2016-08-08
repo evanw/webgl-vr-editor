@@ -144,10 +144,11 @@ if TARGET == .JAVASCRIPT {
     style.width = "100%"
     style.height = "100%"
     style.border = "none"
-    iframe.src = location.href
-    iframe.onload = => iframe.focus
     document.body.appendChild(iframe)
     document.addEventListener("focus", => iframe.focus)
+    iframe.onload = => iframe.focus
+    iframe.src = location.href
+    iframe.contentWindow.location.href = location.href
 
     const reloadAfterChange = (url string) => {
       var source string = null
@@ -155,7 +156,10 @@ if TARGET == .JAVASCRIPT {
         var xhr = XMLHttpRequest.new
         xhr.open("GET", url)
         xhr.onload = => {
-          if source != null && source != xhr.responseText { iframe.src = location.href }
+          if source != null && source != xhr.responseText {
+            iframe.src = location.href
+            iframe.contentWindow.location.href = location.href
+          }
           source = xhr.responseText
         }
         xhr.onloadend = => setTimeout(check, 500)
