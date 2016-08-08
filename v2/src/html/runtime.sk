@@ -1,0 +1,24 @@
+if TARGET == .JAVASCRIPT {
+  @import {
+    var console JSConsole
+
+    class Error {
+      def new(message string)
+    }
+
+    type Timeout = int
+    def setTimeout(callback fn(), milliseconds int) Timeout
+    def clearTimeout(timeout Timeout)
+
+    type Interval = int
+    def setInterval(callback fn(), milliseconds int) Interval
+    def clearInterval(interval Interval)
+
+    class JSConsole {
+      def log(text string)
+      def info(text string)
+      def warn(text string)
+      def error(text string)
+    }
+  }
+}

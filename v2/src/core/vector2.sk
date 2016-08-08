@@ -1,0 +1,56 @@
+class Vector2 {
+  var x = 0.0
+  var y = 0.0
+
+  def setTo(x double, y double) Vector2 {
+    self.x = x
+    self.y = y
+    return self
+  }
+
+  def copyFrom(v Vector2) Vector2 {
+    x = v.x
+    y = v.y
+    return self
+  }
+
+  def equals(v Vector2) bool {
+    return x == v.x && y == v.y
+  }
+
+  def dot(v Vector2) double {
+    return x * v.x + y * v.y
+  }
+
+  def scaleBy(v double) Vector2 {
+    x *= v
+    y *= v
+    return self
+  }
+
+  def scaleBy(v Vector2) Vector2 {
+    x *= v.x
+    y *= v.y
+    return self
+  }
+
+  def lengthSquared double {
+    return x * x + y * y
+  }
+
+  def length double {
+    return Math.sqrt(x * x + y * y)
+  }
+
+  def free {
+    _pool.append(self)
+  }
+}
+
+namespace Vector2 {
+  const _pool List<Vector2> = []
+
+  def allocate Vector2 {
+    return _pool.isEmpty ? new : _pool.takeLast
+  }
+}

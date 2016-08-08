@@ -1,0 +1,32 @@
+type Color : int {
+  def red int { return (self as int) & 255 }
+  def green int { return ((self as int) >> 8) & 255 }
+  def blue int { return ((self as int) >> 16) & 255 }
+  def alpha int { return (self as int) >>> 24 }
+
+  def toString string {
+    return "Color(\(red), \(green), \(blue), \(alpha))"
+  }
+}
+
+namespace Color {
+  const TRANSPARENT = new(0, 0, 0, 0)
+  const BLACK = new(0, 0, 0)
+  const WHITE = new(255, 255, 255)
+
+  const RED = new(255, 0, 0)
+  const GREEN = new(0, 255, 0)
+  const BLUE = new(0, 0, 255)
+
+  const YELLOW = new(255, 255, 0)
+  const CYAN = new(0, 255, 255)
+  const MAGENTA = new(255, 0, 255)
+
+  def new(r int, g int, b int) Color {
+    return new(r, g, b, 255)
+  }
+
+  def new(r int, g int, b int, a int) Color {
+    return (r | g << 8 | b << 16 | a << 24) as Color
+  }
+}

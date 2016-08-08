@@ -1,0 +1,99 @@
+class DataArray {
+  var _bytes Uint8Array = null
+  var _floats Float32Array = null
+  var _byteCount = 0
+  var _byteOffset = 0
+
+  def new {
+  }
+
+  def new(bytes Uint8Array) {
+    _byteCount = bytes.length
+    _floats = Float32Array.new(_byteCount + 3 >> 2)
+    _bytes = Uint8Array.new(_floats.buffer)
+    _bytes.set(bytes)
+  }
+
+  def isEmpty bool {
+    return _byteCount == 0
+  }
+
+  def byteCount int {
+    return _byteCount
+  }
+
+  def byteOffset int {
+    return _byteOffset
+  }
+
+  def bytes Uint8Array {
+    return _bytes.subarray(0, _byteCount)
+  }
+
+  def clear {
+    _byteCount = 0
+  }
+
+  def appendFloat(value double) DataArray {
+    assert(_byteCount == (_byteCount & ~3))
+    _grow(4)
+    _floats[_byteCount >> 2] = value
+    _byteCount += 4
+    return self
+  }
+
+  def appendColor(color Color) DataArray {
+    _grow(4)
+    _bytes[_byteCount] = color.red
+    _bytes[_byteCount + 1] = color.green
+    _bytes[_byteCount + 2] = color.blue
+    _bytes[_byteCount + 3] = color.alpha
+    _byteCount += 4
+    return self
+  }
+
+  def appendByte(value int) DataArray {
+    _grow(1)
+    _bytes[_byteCount] = value
+    _byteCount++
+    return self
+  }
+
+  def appendInt(value int) DataArray {
+    _grow(4)
+    _bytes[_byteCount] = value
+    _bytes[_byteCount + 1] = value >> 8
+    _bytes[_byteCount + 2] = value >> 16
+    _bytes[_byteCount + 3] = value >> 24
+    _byteCount += 4
+    return self
+  }
+
+  def readByte int {
+    assert(_byteOffset + 1 <= _byteCount)
+    var value = _bytes[_byteOffset]
+    _byteOffset++
+    return value
+  }
+
+  def readInt int {
+    assert(_byteOffset + 4 <= _byteCount)
+    var value =
+      _bytes[_byteOffset] |
+      _bytes[_byteOffset + 1] << 8 |
+      _bytes[_byteOffset + 2] << 16 |
+      _bytes[_byteOffset + 3] << 24
+    _byteOffset += 4
+    return value
+  }
+
+  def _grow(amount int) {
+    if _bytes == null || _byteCount + amount > _bytes.length {
+      var floats = Float32Array.new((_byteCount + amount) * 2 + 3 >> 2)
+      var bytes = Uint8Array.new(floats.buffer)
+      if _bytes != null { bytes.set(_bytes) }
+      _floats = floats
+      _bytes = bytes
+    }
+  }
+}

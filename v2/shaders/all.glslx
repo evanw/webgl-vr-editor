@@ -1,0 +1,70 @@
+// Do not use mediump, causes vertices to wiggle on iOS
+precision highp float;
+
+uniform sampler2D texture;
+uniform mat4 matrixModelview;
+uniform mat4 matrixProjection;
+
+uniform vec4 lensFrustum;
+uniform vec4 noLensFrustum;
+uniform vec4 viewport;
+uniform vec4 inverseDistortion;
+uniform float flip;
+
+attribute vec2 coord2;
+attribute vec3 position3;
+
+varying vec3 _coord3;
+
+// Frustum coordinates
+const int LEFT = 0;
+const int TOP = 1;
+const int RIGHT = 2;
+const int BOTTOM = 3;
+
+// Viewport coordinates
+const int X = 0;
+const int Y = 1;
+const int W = 2;
+const int H = 3;
+
+export void maskVertex() {
+  _coord3 = position3;
+  gl_Position = vec4(position3.x * flip, position3.y, 0, 1);
+}
+
+export void maskFragment() {
+  gl_FragColor = vec4(_coord3.z);
+}
+
+export void worldVertex() {
+  _coord3 = vec3(coord2, 1);
+  gl_Position = matrixProjection * matrixModelview * vec4(position3, 1);
+}
+
+export void worldVertexDistorted() {
+  vec4 position = matrixProjection * matrixModelview * vec4(position3, 1);
+  float perspectiveDivide = 1.0 / abs(position.w);
+
+  // Divide by w for perspective-correct texturing, at least as correct as
+  // you can get with a distortion effect on top
+  _coord3 = vec3(coord2, 1) * perspectiveDivide;
+
+  // Do the perspective divide now to get screen-space coordinates
+  position *= perspectiveDivide;
+
+  // Apply the distortion correction directly in the vertex shader since that's
+  // much faster than rendering to a texture and distorting the texture
+  float p = mix(lensFrustum[LEFT], lensFrustum[RIGHT], (0.5 + position.x * 0.5 * flip - viewport[X]) / viewport[W]);
+  float q = mix(lensFrustum[BOTTOM], lensFrustum[TOP], (0.5 + position.y * 0.5 - viewport[Y]) / viewport[H]);
+  float r2 = p * p + q * q;
+  float d = 1.0 + r2 * (inverseDistortion.x + r2 * (inverseDistortion.y + r2 * (inverseDistortion.z + r2 * inverseDistortion.w)));
+  position.x = ((p * d - noLensFrustum[LEFT]) / (noLensFrustum[RIGHT] - noLensFrustum[LEFT]) * 2.0 - 1.0) * flip;
+  position.y = (q * d - noLensFrustum[BOTTOM]) / (noLensFrustum[TOP] - noLensFrustum[BOTTOM]) * 2.0 - 1.0;
+
+  gl_Position = position;
+}
+
+export void worldFragment() {
+  gl_FragColor = vec4(_coord3.xy / _coord3.z, 0, 1);
+}

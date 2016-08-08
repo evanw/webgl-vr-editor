@@ -1,0 +1,99 @@
+class World {
+  const _context GPU.Context
+  const _pool GPU.BufferPool
+  var _areaForDebugging GPU.BufferArea = null
+
+  def draw(material GPU.Material) {
+    if _areaForDebugging == null {
+      var data = DataArray.new
+      const COUNT = 16
+
+      for i in 0..COUNT * COUNT {
+        var s = i % COUNT - COUNT / 2
+        var t = i / COUNT - COUNT / 2
+        _addQuadForDebugging(data, s, t, -COUNT / 2, 1, 0, 0, 0, 1, 0)
+        _addQuadForDebugging(data, s, t, COUNT / 2, 0, 1, 0, 1, 0, 0)
+        _addQuadForDebugging(data, s, -COUNT / 2, t, 0, 0, 1, 1, 0, 0)
+        _addQuadForDebugging(data, s, COUNT / 2, t, 1, 0, 0, 0, 0, 1)
+        _addQuadForDebugging(data, -COUNT / 2, s, t, 0, 1, 0, 0, 0, 1)
+        _addQuadForDebugging(data, COUNT / 2, s, t, 0, 0, 1, 0, 1, 0)
+      }
+
+      _areaForDebugging = _pool.allocate(GPU.VertexFormat.POSITION_F3_COORD_F2, data.bytes)
+    }
+
+    _context.draw(.TRIANGLES, material, _areaForDebugging, .CULL_BACK_FACES)
+  }
+}
+
+namespace World {
+  def _addQuadForDebugging(array DataArray,
+    x double, y double, z double,
+    ux double, uy double, uz double,
+    vx double, vy double, vz double) {
+
+    const VERTEX_DENSITY = 4
+
+    for vi in 0..VERTEX_DENSITY {
+      var v0 = vi * (1.0 / VERTEX_DENSITY)
+      var v1 = v0 + 1.0 / VERTEX_DENSITY
+
+      for ui in 0..VERTEX_DENSITY {
+        var u0 = ui * (1.0 / VERTEX_DENSITY)
+        var u1 = u0 + 1.0 / VERTEX_DENSITY
+
+        var x00 = x + ux * u0 + vx * v0
+        var y00 = y + uy * u0 + vy * v0
+        var z00 = z + uz * u0 + vz * v0
+
+        var x10 = x + ux * u1 + vx * v0
+        var y10 = y + uy * u1 + vy * v0
+        var z10 = z + uz * u1 + vz * v0
+
+        var x01 = x + ux * u0 + vx * v1
+        var y01 = y + uy * u0 + vy * v1
+        var z01 = z + uz * u0 + vz * v1
+
+        var x11 = x + ux * u1 + vx * v1
+        var y11 = y + uy * u1 + vy * v1
+        var z11 = z + uz * u1 + vz * v1
+
+        array.appendFloat(x00)
+        array.appendFloat(y00)
+        array.appendFloat(z00)
+        array.appendFloat(u0)
+        array.appendFloat(v0)
+
+        array.appendFloat(x10)
+        array.appendFloat(y10)
+        array.appendFloat(z10)
+        array.appendFloat(u1)
+        array.appendFloat(v0)
+
+        array.appendFloat(x11)
+        array.appendFloat(y11)
+        array.appendFloat(z11)
+        array.appendFloat(u1)
+        array.appendFloat(v1)
+
+        array.appendFloat(x00)
+        array.appendFloat(y00)
+        array.appendFloat(z00)
+        array.appendFloat(u0)
+        array.appendFloat(v0)
+
+        array.appendFloat(x11)
+        array.appendFloat(y11)
+        array.appendFloat(z11)
+        array.appendFloat(u1)
+        array.appendFloat(v1)
+
+        array.appendFloat(x01)
+        array.appendFloat(y01)
+        array.appendFloat(z01)
+        array.appendFloat(u0)
+        array.appendFloat(v1)
+      }
+    }
+  }
+}

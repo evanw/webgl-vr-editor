@@ -2,4 +2,7 @@
 /v1/src/core/shaders.sk
 /v1/www/main.js
 /v1/www/worker.js
+/v2/src/core/shaders.sk
+/v2/www/main.js
+/v2/www/worker.js
 node_modules/

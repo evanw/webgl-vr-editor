@@ -1,0 +1,148 @@
+namespace GPU.VertexFormat {
+  const POSITION_F3 = VertexFormat.new.add(GLSLX_NAME_POSITION3, .FLOAT, 3)
+  const POSITION_F3_COORD_F2 = VertexFormat.new.add(GLSLX_NAME_POSITION3, .FLOAT, 3).add(GLSLX_NAME_COORD2, .FLOAT, 2)
+}
+
+namespace App {
+  const EYE_SEPARATION_SCALE = 0.1
+}
+
+class App :: HeadsetDelegate {
+  const _context GPU.Context
+  const _pool GPU.BufferPool
+  const _world World
+
+  # Headsets
+  var _passThroughHeadset PassThroughHeadset = null
+  var _googleCardboardHeadset GoogleCardboardHeadset = null
+  var _headset Headset = null
+
+  # Input info
+  var _headsetButtonState = false
+  var _mouseButtonState = false
+  const _keyboardVelocity = Vector3.new
+
+  # Camera info
+  const _modelviewMatrix = Matrix.new
+  const _projectionMatrix = Matrix.new
+  const _eye = Vector3.new
+
+  # Camera orientation info
+  const _orientationMatrix = Matrix.new
+  var _deviceAlpha = 0.0
+  var _deviceAlphaRate = 0.0
+  var _deviceBeta = 0.0
+  var _deviceBetaRate = 0.0
+  var _deviceGamma = 0.0
+  var _deviceGammaRate = 0.0
+  var _hasDeviceOrientation = false
+  var _mouseAngleX = 0.0
+  var _mouseAngleY = 0.0
+  var _screenOrientation = 0.0
+
+  def new(context GPU.Context) {
+    _context = context
+    _pool = GPU.BufferPool.new(context)
+    _world = World.new(context, _pool)
+    _passThroughHeadset = PassThroughHeadset.new(_context, self)
+  }
+
+  def updateHeadsetButtonState(value bool) {
+    _headsetButtonState = value
+  }
+
+  def updateMouseButtonState(value bool) {
+    _mouseButtonState = value
+  }
+
+  def applyMouseMovement(movementX double, movementY double) {
+    const ROTATION_SPEED_IN_RADIANS = 0.005
+    _mouseAngleY += movementX * ROTATION_SPEED_IN_RADIANS
+    _mouseAngleY -= Math.floor(_mouseAngleY / (2 * Math.PI)) * (2 * Math.PI)
+    _mouseAngleX = Math.clamp(_mouseAngleX + movementY * ROTATION_SPEED_IN_RADIANS, -Math.PI / 2, Math.PI / 2)
+  }
+
+  def draw {
+    _headset = _screenOrientation == 0 ? _passThroughHeadset : _googleCardboardHeadset ?= GoogleCardboardHeadset.new(_context, self, _pool)
+    _headset.draw
+  }
+
+  def drawEye(eye Eye, projectionMatrix Matrix, worldMaterial GPU.Material) {
+    _modelviewMatrix
+      .loadIdentity
+      .translateBy(eye == .LEFT ? EYE_SEPARATION_SCALE : eye == .RIGHT ? -EYE_SEPARATION_SCALE : 0, 0, 0)
+      .multiplyBy(_orientationMatrix)
+      .translateBy(-_eye.x, -_eye.y, -_eye.z)
+
+    worldMaterial.setUniformMat4(GLSLX_NAME_MATRIX_MODELVIEW, _modelviewMatrix)
+    worldMaterial.setUniformMat4(GLSLX_NAME_MATRIX_PROJECTION, projectionMatrix)
+
+    _world.draw(worldMaterial)
+  }
+
+  def update(seconds double) {
+    if _hasDeviceOrientation {
+      # Try to render a frame ahead due to lag inherent in the pipeline
+      _deviceAlpha += _deviceAlphaRate * seconds
+      _deviceBeta += _deviceBetaRate * seconds
+      _deviceGamma += _deviceGammaRate * seconds
+
+      _orientationMatrix
+        .loadIdentity
+
+        # Take the screen rotation from the OS into account
+        .rotateBy(0, 0, 1, _screenOrientation * DEGREES_TO_RADIANS)
+
+        # Inverse of https://w3c.github.io/deviceorientation/spec-source-orientation.html
+        .rotateBy(0, 1, 0, -_deviceGamma * DEGREES_TO_RADIANS)
+        .rotateBy(1, 0, 0, -_deviceBeta * DEGREES_TO_RADIANS)
+        .rotateBy(0, 0, 1, -_deviceAlpha * DEGREES_TO_RADIANS)
+
+        # Identity should be when the back of the phone faces forward instead of down
+        .rotateBy(1, 0, 0, Math.PI / 2)
+    }
+
+    else {
+      _orientationMatrix
+        .loadIdentity
+        .rotateBy(1, 0, 0, _mouseAngleX)
+        .rotateBy(0, 1, 0, _mouseAngleY)
+    }
+
+    # Update eye position
+    const speed = Vector3.allocate.copyFrom(_keyboardVelocity)
+    if _headsetButtonState {
+      speed.z -= 1 # Press headset button to move forward
+    }
+    const speedMagnitude = speed.length
+    if speedMagnitude != 0 {
+      const orientation = _orientationMatrix
+      const scale = seconds * 4 / speedMagnitude
+      _eye.x += (orientation.m00 * speed.x + orientation.m10 * speed.y + orientation.m20 * speed.z) * scale
+      _eye.y += (orientation.m01 * speed.x + orientation.m11 * speed.y + orientation.m21 * speed.z) * scale
+      _eye.z += (orientation.m02 * speed.x + orientation.m12 * speed.y + orientation.m22 * speed.z) * scale
+    }
+    speed.free
+  }
+
+  def updateKeyboardVelocity(x double, y double, z double) {
+    _keyboardVelocity.setTo(x, y, z)
+  }
+
+  def updateScreenOrientation(degrees double) {
+    _screenOrientation = degrees
+  }
+
+  def updateDeviceOrientation(alphaDegrees double, betaDegrees double, gammaDegrees double) {
+    _deviceAlpha = alphaDegrees
+    _deviceBeta = betaDegrees
+    _deviceGamma = gammaDegrees
+    _hasDeviceOrientation = true
+  }
+
+  def updateDeviceOrientationRate(alphaRateDegrees double, betaRateDegrees double, gammaRateDegrees double) {
+    _deviceAlphaRate = alphaRateDegrees
+    _deviceBetaRate = betaRateDegrees
+    _deviceGammaRate = gammaRateDegrees
+  }
+}
