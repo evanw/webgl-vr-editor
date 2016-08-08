@@ -3,6 +3,8 @@
 This is an experimental voxel editor for [Google Cardboard](https://store.google.com/product/google_cardboard) and the iPhone.
 Open www/index.html in Mobile Safari, rotate the phone 90 degrees to put it in the headset, and tap the headset button to use the current toolbar selection (the toolbar is at the bottom of the screen).
 
+Live link: https://evanw.github.io/webgl-vr-editor/v1/
+
 ## Successes
 
 * Camera movement

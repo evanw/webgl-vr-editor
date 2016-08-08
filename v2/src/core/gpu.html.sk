@@ -267,7 +267,7 @@ if TARGET == .JAVASCRIPT {
         _fetchPixels(colorURL, (colorWidth, colorHeight, colorPixels) => {
           _fetchPixels(alphaURL, (alphaWidth, alphaHeight, alphaPixels) => {
             if colorWidth == alphaWidth && colorHeight == alphaHeight {
-              for i = 0, n = colorWidth * alphaWidth * 4; i < n; i += 4 {
+              for i = 0, n = colorWidth * colorHeight * 4; i < n; i += 4 {
                 colorPixels[i + 3] = alphaPixels[i]
               }
             }
