@@ -1,0 +1,45 @@
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="viewport" content="initial-scale=1,minimum-scale=1,maximum-scale=1,user-scalable=no">
+    <title>WebGL VR Editor</title>
+    <style>
+      body {
+        overflow: hidden;
+        background: black;
+        color: white;
+        font: 12px/15px sans-serif;
+        user-select: none;
+        -webkit-user-select: none;
+        -moz-user-select: -moz-none;
+      }
+      #instructions {
+        position: absolute;
+        left: 0;
+        top: 0;
+        padding: 15px;
+        background: rgba(0, 0, 0, 0.5);
+        cursor: default;
+        z-index: 1;
+        display: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="instructions">
+      WASDQE: Move selection around<br>
+      Shift+WASDQE: Expand selection<br>
+      Delete: Delete selection<br>
+      Ctrl+Z/Ctrl+Y: Undo/redo<br>
+      Ctrl+S: Save<br>
+      Ctrl+O: Open<br>
+      1: Insert dirt<br>
+      2: Insert rock<br>
+      3: Insert water<br>
+      4: Insert jump pad<br>
+      P: Toggle play mode<br>
+    </div>
+  </body>
+  <script src="main.js"></script>
+</html>
