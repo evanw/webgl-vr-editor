@@ -1,0 +1,83 @@
+class Vector3 {
+  var x = 0.0
+  var y = 0.0
+  var z = 0.0
+
+  def setTo(x double, y double, z double) Vector3 {
+    self.x = x
+    self.y = y
+    self.z = z
+    return self
+  }
+
+  def copyFrom(v Vector3) Vector3 {
+    x = v.x
+    y = v.y
+    z = v.z
+    return self
+  }
+
+  def equals(v Vector3) bool {
+    return x == v.x && y == v.y && z == v.z
+  }
+
+  def dot(v Vector3) double {
+    return x * v.x + y * v.y + z * v.z
+  }
+
+  def add(v Vector3) Vector3 {
+    x += v.x
+    y += v.y
+    z += v.z
+    return self
+  }
+
+  def subtract(v Vector3) Vector3 {
+    x -= v.x
+    y -= v.y
+    z -= v.z
+    return self
+  }
+
+  def scaleBy(v double) Vector3 {
+    x *= v
+    y *= v
+    z *= v
+    return self
+  }
+
+  def scaleBy(v Vector3) Vector3 {
+    x *= v.x
+    y *= v.y
+    z *= v.z
+    return self
+  }
+
+  def lengthSquared double {
+    return x * x + y * y + z * z
+  }
+
+  def length double {
+    return Math.sqrt(x * x + y * y + z * z)
+  }
+
+  def normalize Vector3 {
+    var length = self.length
+    if length > 0 {
+      scaleBy(1 / length)
+    }
+    return self
+  }
+
+  def free {
+    _pool.append(self)
+  }
+}
+
+namespace Vector3 {
+  const _pool List<Vector3> = []
+
+  def allocate Vector3 {
+    return _pool.isEmpty ? new : _pool.takeLast
+  }
+}

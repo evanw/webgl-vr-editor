@@ -5,4 +5,5 @@
 /v2/src/core/shaders.sk
 /v2/www/main.js
 /v2/www/worker.js
+/v3/www/main.js
 node_modules/

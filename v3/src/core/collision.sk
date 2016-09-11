@@ -1,0 +1,134 @@
+class CollisionBox {
+  var originX double
+  var originY double
+  var originZ double
+
+  var sizeX double
+  var sizeY double
+  var sizeZ double
+
+  def centerX double {
+    return originX + sizeX * 0.5
+  }
+
+  def centerY double {
+    return originY + sizeY * 0.5
+  }
+
+  def centerZ double {
+    return originZ + sizeZ * 0.5
+  }
+
+  def overlapsCell(x int, y int, z int) bool {
+    return
+      1 + EPSILON + x > originX && x - EPSILON < originX + sizeX &&
+      1 + EPSILON + y > originY && y - EPSILON < originY + sizeY &&
+      1 + EPSILON + z > originZ && z - EPSILON < originZ + sizeZ
+  }
+
+  def moveBy(voxels Voxels, deltaX double, deltaY double, deltaZ double) {
+    moveByX(voxels, deltaX)
+    moveByY(voxels, deltaY)
+    moveByZ(voxels, deltaZ)
+  }
+
+  def moveByX(voxels Voxels, deltaX double) {
+    var floorX = Math.floor(originX) as int
+    var floorY = Math.floor(originY) as int
+    var floorZ = Math.floor(originZ) as int
+
+    var ceilX = Math.ceil(originX + sizeX) as int - 1
+    var ceilY = Math.ceil(originY + sizeY) as int - 1
+    var ceilZ = Math.ceil(originZ + sizeZ) as int - 1
+
+    originX += deltaX
+
+    if deltaX < 0 {
+      var limit = Math.floor(originX) as int
+      for x = floorX - 1; x >= limit; x-- {
+        if !voxels.isEmpty(x, floorY, floorZ, x, ceilY, ceilZ) {
+          originX = 1 + EPSILON + x
+          break
+        }
+      }
+    }
+
+    else if deltaX > 0 {
+      var limit = Math.ceil(originX + sizeX) as int - 1
+      for x = ceilX + 1; x <= limit; x++ {
+        if !voxels.isEmpty(x, floorY, floorZ, x, ceilY, ceilZ) {
+          originX = x - sizeX - EPSILON
+          break
+        }
+      }
+    }
+  }
+
+  def moveByY(voxels Voxels, deltaY double) {
+    var floorX = Math.floor(originX) as int
+    var floorY = Math.floor(originY) as int
+    var floorZ = Math.floor(originZ) as int
+
+    var ceilX = Math.ceil(originX + sizeX) as int - 1
+    var ceilY = Math.ceil(originY + sizeY) as int - 1
+    var ceilZ = Math.ceil(originZ + sizeZ) as int - 1
+
+    originY += deltaY
+
+    if deltaY < 0 {
+      var limit = Math.floor(originY) as int
+      for y = floorY - 1; y >= limit; y-- {
+        if !voxels.isEmpty(floorX, y, floorZ, ceilX, y, ceilZ) {
+          originY = 1 + EPSILON + y
+          break
+        }
+      }
+    }
+
+    else if deltaY > 0 {
+      var limit = Math.ceil(originY + sizeY) as int - 1
+      for y = ceilY + 1; y <= limit; y++ {
+        if !voxels.isEmpty(floorX, y, floorZ, ceilX, y, ceilZ) {
+          originY = y - sizeY - EPSILON
+          break
+        }
+      }
+    }
+  }
+
+  def moveByZ(voxels Voxels, deltaZ double) {
+    var floorX = Math.floor(originX) as int
+    var floorY = Math.floor(originY) as int
+    var floorZ = Math.floor(originZ) as int
+
+    var ceilX = Math.ceil(originX + sizeX) as int - 1
+    var ceilY = Math.ceil(originY + sizeY) as int - 1
+    var ceilZ = Math.ceil(originZ + sizeZ) as int - 1
+
+    originZ += deltaZ
+
+    if deltaZ < 0 {
+      var limit = Math.floor(originZ) as int
+      for z = floorZ - 1; z >= limit; z-- {
+        if !voxels.isEmpty(floorX, floorY, z, ceilX, ceilY, z) {
+          originZ = 1 + EPSILON + z
+          break
+        }
+      }
+    }
+
+    else if deltaZ > 0 {
+      var limit = Math.ceil(originZ + sizeZ) as int - 1
+      for z = ceilZ + 1; z <= limit; z++ {
+        if !voxels.isEmpty(floorX, floorY, z, ceilX, ceilY, z) {
+          originZ = z - sizeZ - EPSILON
+          break
+        }
+      }
+    }
+  }
+}
+
+namespace CollisionBox {
+  const EPSILON = 0.001
+}

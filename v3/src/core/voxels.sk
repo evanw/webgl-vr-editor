@@ -1,0 +1,333 @@
+enum Cell {
+  EMPTY
+
+  DIRT
+  JUMP
+  ROCK
+  WATER
+}
+
+class TraceResult {
+  var cellX = 0
+  var cellY = 0
+  var cellZ = 0
+
+  var normalX = 0
+  var normalY = 0
+  var normalZ = 0
+
+  var distance = 0.0
+}
+
+class Voxels {
+  const _context GPU.Context
+  const _pool GPU.BufferPool
+  const _chunkMap IntMap<Chunk> = {}
+  const _chunkList List<Chunk> = []
+
+  def isEmpty(xmin int, ymin int, zmin int, xmax int, ymax int, zmax int) bool {
+    for z = zmin; z <= zmax; z++ {
+      for y = ymin; y <= ymax; y++ {
+        for x = xmin; x <= xmax; x++ {
+          if get(x, y, z) != .EMPTY {
+            return false
+          }
+        }
+      }
+    }
+
+    return true
+  }
+
+  def get(x int, y int, z int) Cell {
+    var chunk = _chunkMap.get(_key(x, y, z), null)
+    return chunk == null ? .EMPTY : chunk.get(x & CELLS_MASK, y & CELLS_MASK, z & CELLS_MASK)
+  }
+
+  def set(x int, y int, z int, cell Cell) {
+    var key = _key(x, y, z)
+    var map = _chunkMap
+    var chunk = map.get(key, null)
+
+    if chunk == null && cell != .EMPTY && _isValid(x, y, z) {
+      chunk = Chunk.new(x & ~CELLS_MASK, y & ~CELLS_MASK, z & ~CELLS_MASK)
+      map[key] = chunk
+      _chunkList.append(chunk)
+    }
+
+    chunk?.set(x & CELLS_MASK, y & CELLS_MASK, z & CELLS_MASK, cell)
+  }
+
+  def draw(material GPU.Material) {
+    for chunk in _chunkList {
+      _context.draw(.TRIANGLES, material, chunk.area(_pool), .CULL_BACK_FACES)
+    }
+  }
+
+  def trace(x double, y double, z double, rayX double, rayY double, rayZ double, result TraceResult) bool {
+    var cellX = result.cellX = Math.floor(x) as int
+    var cellY = result.cellY = Math.floor(y) as int
+    var cellZ = result.cellZ = Math.floor(z) as int
+
+    result.normalX = 0
+    result.normalY = 0
+    result.normalZ = 0
+
+    const floorX = (cellX - x) / rayX
+    const floorY = (cellY - y) / rayY
+    const floorZ = (cellZ - z) / rayZ
+
+    const ceilX = (cellX + 1 - x) / rayX
+    const ceilY = (cellY + 1 - y) / rayY
+    const ceilZ = (cellZ + 1 - z) / rayZ
+
+    const stepX = rayX > 0 ? 1 : rayX < 0 ? -1 : 0
+    const stepY = rayY > 0 ? 1 : rayY < 0 ? -1 : 0
+    const stepZ = rayZ > 0 ? 1 : rayZ < 0 ? -1 : 0
+
+    const deltaX = stepX / rayX
+    const deltaY = stepY / rayY
+    const deltaZ = stepZ / rayZ
+
+    var maxX = floorX > ceilX ? floorX : ceilX
+    var maxY = floorY > ceilY ? floorY : ceilY
+    var maxZ = floorZ > ceilZ ? floorZ : ceilZ
+    var axis = 0
+
+    for i in 0..1000 {
+      result.distance = maxX < maxY
+        ? maxX < maxZ ? maxX : maxZ
+        : maxY < maxZ ? maxY : maxZ
+
+      if result.distance == maxX {
+        result.cellX += stepX
+        maxX += deltaX
+        axis = 0
+      }
+
+      else if result.distance == maxY {
+        result.cellY += stepY
+        maxY += deltaY
+        axis = 1
+      }
+
+      else {
+        result.cellZ += stepZ
+        maxZ += deltaZ
+        axis = 2
+      }
+
+      if get(result.cellX, result.cellY, result.cellZ) != .EMPTY {
+        if axis == 0 { result.normalX = -stepX }
+        else if axis == 1 { result.normalY = -stepY }
+        else { result.normalZ = -stepZ }
+        return true
+      }
+    }
+
+    return false
+  }
+}
+
+namespace Voxels {
+  const _vertices = DataArray.new
+
+  # Each chunk has a CELLS_SIZE * CELLS_SIZE * CELLS_SIZE block of cells
+  const CELLS_SHIFT = 3
+  const CELLS_SIZE = 1 << CELLS_SHIFT
+  const CELLS_MASK = (1 << CELLS_SHIFT) - 1
+
+  # Chunk coordinates fit in a 32-bit integer (1 in chunk coordinates corresponds to CELLS_SIZE in cell coordinates)
+  const CHUNK_BITS_X = 11
+  const CHUNK_BITS_Y = 10
+  const CHUNK_BITS_Z = 11
+  const CHUNK_MASK_X = (1 << CHUNK_BITS_X) - 1
+  const CHUNK_MASK_Y = (1 << CHUNK_BITS_Y) - 1
+  const CHUNK_MASK_Z = (1 << CHUNK_BITS_Z) - 1
+
+  def _isValid(cellX int, cellY int, cellZ int) bool {
+    return
+      cellX == (cellX << (32 - CHUNK_BITS_X - CELLS_SHIFT) >> (32 - CHUNK_BITS_X - CELLS_SHIFT)) &&
+      cellY == (cellY << (32 - CHUNK_BITS_Y - CELLS_SHIFT) >> (32 - CHUNK_BITS_Y - CELLS_SHIFT)) &&
+      cellZ == (cellZ << (32 - CHUNK_BITS_Z - CELLS_SHIFT) >> (32 - CHUNK_BITS_Z - CELLS_SHIFT))
+  }
+
+  def _key(cellX int, cellY int, cellZ int) int {
+    assert(_isValid(cellX, cellY, cellZ))
+    return
+      (cellX >> CELLS_SHIFT & CHUNK_MASK_X) |
+      (cellY >> CELLS_SHIFT & CHUNK_MASK_Y) << CHUNK_BITS_X |
+      (cellZ >> CELLS_SHIFT & CHUNK_MASK_Z) << (CHUNK_BITS_X + CHUNK_BITS_Y)
+  }
+
+  class Chunk {
+    const originX int
+    const originY int
+    const originZ int
+    const cells = Uint8Array.new(CELLS_SIZE * CELLS_SIZE * CELLS_SIZE)
+
+    var _cachedArea GPU.BufferArea = null
+
+    def get(localX int, localY int, localZ int) Cell {
+      assert(0 <= localX && localX < CELLS_SIZE)
+      assert(0 <= localY && localY < CELLS_SIZE)
+      assert(0 <= localZ && localZ < CELLS_SIZE)
+      return cells[localX | localY << CELLS_SHIFT | localZ << 2 * CELLS_SHIFT] as Cell
+    }
+
+    def set(localX int, localY int, localZ int, cell Cell) {
+      assert(0 <= localX && localX < CELLS_SIZE)
+      assert(0 <= localY && localY < CELLS_SIZE)
+      assert(0 <= localZ && localZ < CELLS_SIZE)
+      var index = localX | localY << CELLS_SHIFT | localZ << 2 * CELLS_SHIFT
+
+      if cells[index] == cell {
+        return
+      }
+
+      cells[index] = cell
+      _cachedArea?.free
+      _cachedArea = null
+    }
+
+    def area(pool GPU.BufferPool) GPU.BufferArea {
+      if _cachedArea == null {
+        _vertices.clear
+
+        var originX = self.originX
+        var originY = self.originY
+        var originZ = self.originZ
+        var cells = self.cells
+        var i = 0
+
+        for z in 0..CELLS_SIZE {
+          for y in 0..CELLS_SIZE {
+            for x in 0..CELLS_SIZE {
+              const cell = cells[i] as Cell
+
+              if cell != .EMPTY {
+                const globalX = originX + x
+                const globalY = originY + y
+                const globalZ = originZ + z
+
+                const centerX = globalX + 0.5
+                const centerY = globalY + 0.5
+                const centerZ = globalZ + 0.5
+
+                var color Color
+                switch cell {
+                  case .DIRT { color = Color.new(0x9F, 0x7F, 0x5F) }
+                  case .JUMP { color = Color.new(0xFF, 0xFF, 0x00) }
+                  case .ROCK { color = Color.new(0xAF, 0xAF, 0xAF) }
+                  case .WATER { color = Color.new(0x00, 0x3F, 0xAF) }
+                }
+
+                _appendQuad(globalX, globalY, globalZ, centerX, centerY, centerZ, .Z, .Y, color)
+                _appendQuad(globalX, globalY, globalZ, centerX, centerY, centerZ, .X, .Z, color)
+                _appendQuad(globalX, globalY, globalZ, centerX, centerY, centerZ, .Y, .X, color)
+                _appendQuad(globalX + 1, globalY, globalZ, centerX, centerY, centerZ, .Y, .Z, color)
+                _appendQuad(globalX, globalY + 1, globalZ, centerX, centerY, centerZ, .Z, .X, cell == .DIRT ? Color.new(0x7F, 0xAF, 0x4F) : color)
+                _appendQuad(globalX, globalY, globalZ + 1, centerX, centerY, centerZ, .X, .Y, color)
+              }
+
+              i++
+            }
+          }
+        }
+
+        _cachedArea = pool.allocate(GPU.VertexFormat.POSITION_F3_CENTER_F3_COLOR_B4, _vertices.bytes)
+      }
+
+      return _cachedArea
+    }
+
+    def _appendQuad(x int, y int, z int, cx double, cy double, cz double, u Delta, v Delta, color Color) {
+      const ux = u.x
+      const uy = u.y
+      const uz = u.z
+
+      const vx = v.x
+      const vy = v.y
+      const vz = v.z
+
+      const uvx = x + ux + vx
+      const uvy = y + uy + vy
+      const uvz = z + uz + vz
+
+      _vertices.appendFloat(x)
+      _vertices.appendFloat(y)
+      _vertices.appendFloat(z)
+      _vertices.appendFloat(cx)
+      _vertices.appendFloat(cy)
+      _vertices.appendFloat(cz)
+      _vertices.appendColor(color)
+
+      _vertices.appendFloat(x + ux)
+      _vertices.appendFloat(y + uy)
+      _vertices.appendFloat(z + uz)
+      _vertices.appendFloat(cx)
+      _vertices.appendFloat(cy)
+      _vertices.appendFloat(cz)
+      _vertices.appendColor(color)
+
+      _vertices.appendFloat(uvx)
+      _vertices.appendFloat(uvy)
+      _vertices.appendFloat(uvz)
+      _vertices.appendFloat(cx)
+      _vertices.appendFloat(cy)
+      _vertices.appendFloat(cz)
+      _vertices.appendColor(color)
+
+      _vertices.appendFloat(x)
+      _vertices.appendFloat(y)
+      _vertices.appendFloat(z)
+      _vertices.appendFloat(cx)
+      _vertices.appendFloat(cy)
+      _vertices.appendFloat(cz)
+      _vertices.appendColor(color)
+
+      _vertices.appendFloat(uvx)
+      _vertices.appendFloat(uvy)
+      _vertices.appendFloat(uvz)
+      _vertices.appendFloat(cx)
+      _vertices.appendFloat(cy)
+      _vertices.appendFloat(cz)
+      _vertices.appendColor(color)
+
+      _vertices.appendFloat(x + vx)
+      _vertices.appendFloat(y + vy)
+      _vertices.appendFloat(z + vz)
+      _vertices.appendFloat(cx)
+      _vertices.appendFloat(cy)
+      _vertices.appendFloat(cz)
+      _vertices.appendColor(color)
+    }
+  }
+
+  type Delta : int {
+    def x int {
+      return self as int & 1
+    }
+
+    def y int {
+      return self as int >> 1 & 1
+    }
+
+    def z int {
+      return self as int >> 2
+    }
+  }
+
+  namespace Delta {
+    const X = new(1, 0, 0)
+    const Y = new(0, 1, 0)
+    const Z = new(0, 0, 1)
+
+    def new(x int, y int, z int) Delta {
+      assert(x == 0 || x == 1)
+      assert(y == 0 || y == 1)
+      assert(z == 0 || z == 1)
+      return (x | y << 1 | z << 2) as Delta
+    }
+  }
+}

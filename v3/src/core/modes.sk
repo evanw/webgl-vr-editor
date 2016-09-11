@@ -1,0 +1,245 @@
+enum Key {
+  # Letters
+  A
+  B
+  C
+  D
+  E
+  F
+  G
+  H
+  I
+  J
+  K
+  L
+  M
+  N
+  O
+  P
+  Q
+  R
+  S
+  T
+  U
+  V
+  W
+  X
+  Y
+  Z
+
+  # Numbers
+  N0
+  N1
+  N2
+  N3
+  N4
+  N5
+  N6
+  N7
+  N8
+  N9
+}
+
+class InputState {
+  const keyboardVelocity = Vector3.new
+  var headsetButton = false
+  var mouseButton = false
+}
+
+interface Mode {
+  def cameraTarget Vector3
+  def cameraTarget=(value Vector3)
+  def handleKeyPress(key Key, shift bool)
+  def draw(lines Lines)
+  def update(inputState InputState, orientation Matrix, seconds double)
+}
+
+################################################################################
+
+class EditMode :: Mode {
+  const _voxels Voxels
+  const _cameraTarget = Vector3.new.setTo(0.5, 0.5, 0.5)
+
+  var _forwardX = 0
+  var _forwardZ = 0
+
+  var _rightX = 0
+  var _rightZ = 0
+
+  var _cursorX = 0
+  var _cursorY = 0
+  var _cursorZ = 0
+
+  var _anchorX = 0
+  var _anchorY = 0
+  var _anchorZ = 0
+
+  def cameraTarget Vector3 {
+    return _cameraTarget
+  }
+
+  def cameraTarget=(value Vector3) {
+    _cursorX = _anchorX = Math.floor(value.x) as int
+    _cursorY = _anchorY = Math.floor(value.y) as int
+    _cursorZ = _anchorZ = Math.floor(value.z) as int
+    _cameraTarget.setTo(_cursorX + 0.5, _cursorY + 0.5, _cursorZ + 0.5)
+  }
+
+  def _moveBy(deltaX int, deltaY int, deltaZ int, extendSelection bool) {
+    _cursorX += deltaX
+    _cursorY += deltaY
+    _cursorZ += deltaZ
+
+    if !extendSelection {
+      _anchorX = _cursorX
+      _anchorY = _cursorY
+      _anchorZ = _cursorZ
+    }
+  }
+
+  def _setAll(cell Cell) {
+    for x in Math.min(_cursorX, _anchorX)..Math.max(_cursorX, _anchorX) + 1 {
+      for y in Math.min(_cursorY, _anchorY)..Math.max(_cursorY, _anchorY) + 1 {
+        for z in Math.min(_cursorZ, _anchorZ)..Math.max(_cursorZ, _anchorZ) + 1 {
+          _voxels.set(x, y, z, cell)
+        }
+      }
+    }
+  }
+
+  def handleKeyPress(key Key, shift bool) {
+    switch key {
+      case .A { _moveBy(-_rightX, 0, -_rightZ, shift) }
+      case .D { _moveBy(_rightX, 0, _rightZ, shift) }
+      case .E { _moveBy(0, 1, 0, shift) }
+      case .Q { _moveBy(0, -1, 0, shift) }
+      case .S { _moveBy(-_forwardX, 0, -_forwardZ, shift) }
+      case .W { _moveBy(_forwardX, 0, _forwardZ, shift) }
+
+      case .N1 { _setAll(.EMPTY) }
+      case .N2 { _setAll(.DIRT) }
+      case .N3 { _setAll(.ROCK) }
+      case .N4 { _setAll(.WATER) }
+      case .N5 { _setAll(.JUMP) }
+    }
+  }
+
+  def draw(lines Lines) {
+    const padding = _voxels.get(_cursorX, _cursorY, _cursorZ) != .EMPTY ? -0.01 : 0.01
+    lines.appendCube(
+      Math.min(_cursorX, _anchorX) + padding,
+      Math.min(_cursorY, _anchorY) + padding,
+      Math.min(_cursorZ, _anchorZ) + padding,
+      Math.max(_cursorX, _anchorX) + 1 - padding,
+      Math.max(_cursorY, _anchorY) + 1 - padding,
+      Math.max(_cursorZ, _anchorZ) + 1 - padding,
+      .WHITE)
+  }
+
+  def update(inputState InputState, orientation Matrix, seconds double) {
+    _forwardX = _forwardZ = 0
+    _rightX = _rightZ = 0
+
+    if Math.abs(orientation.m20) > Math.abs(orientation.m22) {
+      if orientation.m20 > 0 {
+        _forwardX = -1
+        _rightZ = -1
+      } else {
+        _forwardX = 1
+        _rightZ = 1
+      }
+    } else {
+      if orientation.m22 > 0 {
+        _forwardZ = -1
+        _rightX = 1
+      } else {
+        _forwardZ = 1
+        _rightX = -1
+      }
+    }
+
+    const blend = 1 - Math.pow(1e-8, seconds)
+    _cameraTarget.x += (_cursorX + 0.5 - _cameraTarget.x) * blend
+    _cameraTarget.y += (_cursorY + 0.5 - _cameraTarget.y) * blend
+    _cameraTarget.z += (_cursorZ + 0.5 - _cameraTarget.z) * blend
+  }
+}
+
+################################################################################
+
+class PlayMode :: Mode {
+  const _voxels Voxels
+  const _playerBox = CollisionBox.new(0.1, 0, 0.1, 0.8, 0.8, 0.8)
+  const _cameraTarget = Vector3.new
+  const _horizontalVelocity = Vector3.new
+  const _forward = Vector3.new
+  const _right = Vector3.new
+  var _verticalVelocity = 0.0
+  var _isOnFloor = false
+
+  def cameraTarget Vector3 {
+    return _cameraTarget.setTo(_playerBox.centerX, _playerBox.centerY, _playerBox.centerZ)
+  }
+
+  def cameraTarget=(value Vector3) {
+    _playerBox.originX = value.x - _playerBox.sizeX / 2
+    _playerBox.originY = value.y - _playerBox.sizeY / 2
+    _playerBox.originZ = value.z - _playerBox.sizeZ / 2
+  }
+
+  def handleKeyPress(key Key, shift bool) {
+  }
+
+  def draw(lines Lines) {
+    lines.appendCube(
+      _playerBox.originX + 0.01,
+      _playerBox.originY + 0.01,
+      _playerBox.originZ + 0.01,
+      _playerBox.originX + _playerBox.sizeX - 0.01,
+      _playerBox.originY + _playerBox.sizeY - 0.01,
+      _playerBox.originZ + _playerBox.sizeZ - 0.01,
+      .WHITE)
+  }
+
+  def update(inputState InputState, orientation Matrix, seconds double) {
+    # Update eye position
+    _horizontalVelocity.setTo(inputState.keyboardVelocity.x, 0, inputState.keyboardVelocity.z)
+
+    # Press the headset button to move forward
+    if inputState.headsetButton {
+      _horizontalVelocity.z -= 1
+    }
+
+    # Scale velocity by the timestep
+    _horizontalVelocity.normalize.scaleBy(seconds * 6)
+
+    # Jump when on the floor
+    if _isOnFloor && _voxels.get(Math.floor(_playerBox.centerX) as int, Math.floor(_playerBox.originY) as int - 1, Math.floor(_playerBox.centerZ) as int) == .JUMP {
+      _verticalVelocity = 10
+      _isOnFloor = false
+    }
+
+    # Fall due to gravity
+    else {
+      _verticalVelocity -= seconds * 16
+    }
+
+    var expectedOriginY = _playerBox.originY + _verticalVelocity * seconds
+    _forward.setTo(orientation.m20, 0, orientation.m22).normalize
+    _right.setTo(orientation.m00, 0, orientation.m02).normalize
+
+    # Collide with the world
+    _playerBox.moveBy(_voxels,
+      _forward.x * _horizontalVelocity.z + _right.x * _horizontalVelocity.x,
+      _verticalVelocity * seconds,
+      _forward.z * _horizontalVelocity.z + _right.z * _horizontalVelocity.x)
+
+    # Update vertical state tracking
+    if _playerBox.originY != expectedOriginY {
+      _verticalVelocity = -2 * CollisionBox.EPSILON / seconds
+      _isOnFloor = _verticalVelocity < 0
+    } else {
+      _isOnFloor = false
+    }
+  }
+}

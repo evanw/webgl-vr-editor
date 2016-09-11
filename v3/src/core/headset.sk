@@ -1,0 +1,208 @@
+enum Eye {
+  CENTER
+  LEFT
+  RIGHT
+}
+
+interface Headset {
+  def draw
+}
+
+interface HeadsetDelegate {
+  def drawEye(eye Eye, projectionMatrix Matrix, worldMaterial GPU.Material)
+}
+
+class PassThroughHeadset :: Headset {
+  const _context GPU.Context
+  const _delegate HeadsetDelegate
+  const _projectionMatrix = Matrix.new
+  const _worldMaterial GPU.Material
+
+  def new(context GPU.Context, delegate HeadsetDelegate) {
+    _context = context
+    _delegate = delegate
+    _worldMaterial = context.createMaterial(.POSITION_F3_CENTER_F3_COLOR_B4, GLSLX_SOURCE_WORLD_VERTEX, GLSLX_SOURCE_WORLD_FRAGMENT)
+  }
+
+  def draw {
+    var context = _context
+    _projectionMatrix.createPerspective(60 * Math.PI / 180, context.width / (context.height as double), 0.1, 100)
+    context.clear(.ALL)
+    context.setDepthMode(.READ_WRITE)
+    context.setCopyBlendState
+    _delegate.drawEye(.CENTER, _projectionMatrix, _worldMaterial)
+  }
+}
+
+class GoogleCardboardHeadset :: Headset {
+  const _context GPU.Context
+  const _delegate HeadsetDelegate
+  const _device = LibGVR.DeviceData.pickFromUserAgent ?? .IPHONE_6
+  const _leftProjectionMatrix = Matrix.new
+  const _maskArea GPU.BufferArea
+  const _maskMaterial GPU.Material
+  const _rightProjectionMatrix = Matrix.new
+  const _viewer = LibGVR.ViewerData.CARDBOARD_MAY_2015
+  const _worldMaterial GPU.Material
+  const _projectPoint fn(Vector2)
+
+  def new(context GPU.Context, delegate HeadsetDelegate, pool GPU.BufferPool) {
+    _context = context
+    _delegate = delegate
+    _maskMaterial = context.createMaterial(.POSITION_F3, GLSLX_SOURCE_MASK_VERTEX, GLSLX_SOURCE_MASK_FRAGMENT)
+    _worldMaterial = context.createMaterial(.POSITION_F3_CENTER_F3_COLOR_B4, GLSLX_SOURCE_WORLD_VERTEX_DISTORTED, GLSLX_SOURCE_WORLD_FRAGMENT)
+
+    const viewer = _viewer
+    const device = _device
+    const inverseDistortion = viewer.inverseDistortionCoefficients
+    const lensFrustum = LibGVR.getLeftEyeVisibleTanAngles(viewer, device)
+    const noLensFrustum = LibGVR.getLeftEyeNoLensTanAngles(viewer, device)
+    const viewport = LibGVR.getLeftEyeVisibleScreenRect(viewer, device, noLensFrustum)
+    const near = 0.1
+
+    # The math is easier using the whole viewport instead of just the left half
+    viewport[0] = viewport[0] * 2
+    viewport[2] = viewport[2] * 2
+
+    _worldMaterial.setUniformVec4(GLSLX_NAME_INVERSE_DISTORTION, inverseDistortion[0], inverseDistortion[1], inverseDistortion[2], inverseDistortion[3])
+    _worldMaterial.setUniformVec4(GLSLX_NAME_LENS_FRUSTUM, lensFrustum[0], lensFrustum[1], lensFrustum[2], lensFrustum[3])
+    _worldMaterial.setUniformVec4(GLSLX_NAME_NO_LENS_FRUSTUM, noLensFrustum[0], noLensFrustum[1], noLensFrustum[2], noLensFrustum[3])
+    _worldMaterial.setUniformVec4(GLSLX_NAME_VIEWPORT, viewport[0], viewport[1], viewport[2], viewport[3])
+
+    _leftProjectionMatrix.createFrustum(lensFrustum[0] * near, lensFrustum[2] * near, lensFrustum[3] * near, lensFrustum[1] * near, near, 100)
+    _rightProjectionMatrix.copyFrom(_leftProjectionMatrix)
+    _rightProjectionMatrix.m02 = -_rightProjectionMatrix.m02
+
+    _projectPoint = point => {
+      var x = lensFrustum[0] + (lensFrustum[2] - lensFrustum[0]) * point.x
+      var y = lensFrustum[3] + (lensFrustum[1] - lensFrustum[3]) * point.y
+      var r = Math.sqrt(x * x + y * y)
+      var scale = LibGVR.distort(inverseDistortion, r) / r
+      point.x = viewport[0] + viewport[2] * (x * scale - noLensFrustum[0]) / (noLensFrustum[2] - noLensFrustum[0])
+      point.y = viewport[1] + viewport[3] * (y * scale - noLensFrustum[3]) / (noLensFrustum[1] - noLensFrustum[3])
+    }
+
+    _maskArea = pool.allocate(GPU.VertexFormat.POSITION_F3, _generateMaskMesh(_projectPoint).bytes)
+  }
+
+  def draw {
+    const context = _context
+    const width = context.width
+    const height = context.height
+
+    context.clear(.ALL)
+
+    # Left eye
+    _worldMaterial.setUniformFloat(GLSLX_NAME_FLIP, 1)
+    context.setViewport(0, 0, width / 2, height)
+    context.setDepthMode(.READ_WRITE)
+    context.setCopyBlendState
+    _delegate.drawEye(.LEFT, _leftProjectionMatrix, _worldMaterial)
+
+    # Left mask
+    _maskMaterial.setUniformFloat(GLSLX_NAME_FLIP, 1)
+    context.setDepthMode(.NONE)
+    context.setMultiplyBlendState
+    context.draw(.TRIANGLE_STRIP, _maskMaterial, _maskArea, .NO_CULLING)
+
+    # Right eye
+    _worldMaterial.setUniformFloat(GLSLX_NAME_FLIP, -1)
+    context.setViewport(width / 2, 0, (width + 1) / 2, height)
+    context.setDepthMode(.READ_WRITE)
+    context.setCopyBlendState
+    _delegate.drawEye(.RIGHT, _rightProjectionMatrix, _worldMaterial)
+
+    # Right mask
+    _maskMaterial.setUniformFloat(GLSLX_NAME_FLIP, -1)
+    context.setDepthMode(.NONE)
+    context.setMultiplyBlendState
+    context.draw(.TRIANGLE_STRIP, _maskMaterial, _maskArea, .NO_CULLING)
+  }
+}
+
+namespace GoogleCardboardHeadset {
+  def _generateMaskMesh(transform fn(Vector2)) DataArray {
+    const BORDER = 0.05
+    const COUNT = 8
+
+    var data = DataArray.new
+    var a = Vector2.new
+    var b = Vector2.new
+
+    for id in 0..8 {
+      for i = 0; i <= COUNT; i++ {
+        var t = i * (1.0 / COUNT)
+        var inner = BORDER + t * (1 - 2 * BORDER)
+        var outer = t * 3 - 1
+        var fade = id < 4 ? 1 : 0
+
+        if id == 0 {
+          a.setTo(inner, 1 - BORDER)
+          b.setTo(t, 1)
+        }
+
+        else if id == 1 {
+          a.setTo(inner, BORDER)
+          b.setTo(t, 0)
+        }
+
+        else if id == 2 {
+          a.setTo(1 - BORDER, inner)
+          b.setTo(1, t)
+        }
+
+        else if id == 3 {
+          a.setTo(BORDER, inner)
+          b.setTo(0, t)
+        }
+
+        else if id == 4 {
+          a.setTo(outer, 2)
+          b.setTo(t, 1)
+        }
+
+        else if id == 5 {
+          a.setTo(outer, -1)
+          b.setTo(t, 0)
+        }
+
+        else if id == 6 {
+          a.setTo(2, outer)
+          b.setTo(1, t)
+        }
+
+        else {
+          a.setTo(-1, outer)
+          b.setTo(0, t)
+        }
+
+        transform(a)
+        transform(b)
+
+        data.appendFloat(a.x * 2 - 1)
+        data.appendFloat(a.y * 2 - 1)
+        data.appendFloat(fade)
+
+        # Restart the triangle strip at the beginning
+        if i == 0 {
+          data.appendFloat(a.x * 2 - 1)
+          data.appendFloat(a.y * 2 - 1)
+          data.appendFloat(fade)
+        }
+
+        data.appendFloat(b.x * 2 - 1)
+        data.appendFloat(b.y * 2 - 1)
+        data.appendFloat(0)
+
+        # Restart the triangle strip at the end
+        if i == COUNT {
+          data.appendFloat(b.x * 2 - 1)
+          data.appendFloat(b.y * 2 - 1)
+          data.appendFloat(0)
+        }
+      }
+    }
+
+    return data
+  }
+}

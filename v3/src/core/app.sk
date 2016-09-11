@@ -1,0 +1,175 @@
+namespace GPU.VertexFormat {
+  const POSITION_F3 = VertexFormat.new.add(GLSLX_NAME_POSITION3, .FLOAT, 3)
+  const POSITION_F3_CENTER_F3_COLOR_B4 = VertexFormat.new.add(GLSLX_NAME_POSITION3, .FLOAT, 3).add(GLSLX_NAME_CENTER3, .FLOAT, 3).add(GLSLX_NAME_COLOR4, .BYTE, 4)
+}
+
+namespace App {
+  const EYE_SEPARATION_SCALE = 0.1
+}
+
+class App :: HeadsetDelegate {
+  const _context GPU.Context
+  const _pool GPU.BufferPool
+  const _lines Lines
+  const _voxels Voxels
+
+  # Modes
+  var _mode Mode
+
+  # Headsets
+  var _passThroughHeadset PassThroughHeadset = null
+  var _googleCardboardHeadset GoogleCardboardHeadset = null
+  var _headset Headset = null
+
+  # Input info
+  const _inputState = InputState.new
+  var _fps = 0.0
+
+  # Camera info
+  const _modelviewMatrix = Matrix.new
+  const _projectionMatrix = Matrix.new
+
+  # Camera orientation info
+  const _orientationMatrix = Matrix.new
+  var _deviceAlpha = 0.0
+  var _deviceAlphaRate = 0.0
+  var _deviceBeta = 0.0
+  var _deviceBetaRate = 0.0
+  var _deviceGamma = 0.0
+  var _deviceGammaRate = 0.0
+  var _hasDeviceOrientation = false
+  var _mouseAngleX = 0.0
+  var _mouseAngleY = 0.0
+  var _screenOrientation = 0.0
+
+  def new(context GPU.Context) {
+    _context = context
+    _pool = GPU.BufferPool.new(context)
+    _lines = Lines.new(context, _pool)
+    _voxels = Voxels.new(context, _pool)
+    _passThroughHeadset = PassThroughHeadset.new(_context, self)
+
+    for x in -20..21 {
+      for z in -20..21 {
+        _voxels.set(x, -1, z, ((x ^ z) & 1) == 0 ? .ROCK : .DIRT)
+      }
+    }
+
+    _voxels.set(-5, -1, -5, .JUMP)
+    _voxels.set(-5, -1, 5, .JUMP)
+    _voxels.set(5, -1, -5, .JUMP)
+    _voxels.set(5, -1, 5, .JUMP)
+
+    for i in -10..11 {
+      _voxels.set(i, 2, -10, .DIRT)
+      _voxels.set(i, 2, 0, .DIRT)
+      _voxels.set(i, 2, 10, .DIRT)
+      _voxels.set(-10, 2, i, .DIRT)
+      _voxels.set(0, 2, i, .DIRT)
+      _voxels.set(10, 2, i, .DIRT)
+    }
+
+    _mode = "Mobi" in navigator.userAgent ? PlayMode.new(_voxels) : EditMode.new(_voxels)
+  }
+
+  def handleKeyPress(key Key, shift bool) {
+    if key == .P {
+      var cameraTarget = _mode.cameraTarget
+      _mode = _mode is EditMode ? PlayMode.new(_voxels) : EditMode.new(_voxels)
+      _mode.cameraTarget = cameraTarget
+    } else {
+      _mode.handleKeyPress(key, shift)
+    }
+  }
+
+  def inputState InputState {
+    return _inputState
+  }
+
+  def updateScreenOrientation(degrees double) {
+    _screenOrientation = degrees
+  }
+
+  def updateDeviceOrientation(alphaDegrees double, betaDegrees double, gammaDegrees double) {
+    _deviceAlpha = alphaDegrees
+    _deviceBeta = betaDegrees
+    _deviceGamma = gammaDegrees
+    _hasDeviceOrientation = true
+  }
+
+  def updateDeviceOrientationRate(alphaRateDegrees double, betaRateDegrees double, gammaRateDegrees double) {
+    _deviceAlphaRate = alphaRateDegrees
+    _deviceBetaRate = betaRateDegrees
+    _deviceGammaRate = gammaRateDegrees
+  }
+
+  def applyMouseMovement(movementX double, movementY double) {
+    const ROTATION_SPEED_IN_RADIANS = 0.005
+    _mouseAngleY += movementX * ROTATION_SPEED_IN_RADIANS
+    _mouseAngleY -= Math.floor(_mouseAngleY / (2 * Math.PI)) * (2 * Math.PI)
+    _mouseAngleX = Math.clamp(_mouseAngleX + movementY * ROTATION_SPEED_IN_RADIANS, -Math.PI / 2, Math.PI / 2)
+  }
+
+  def draw {
+    _headset = _screenOrientation == 0 ? _passThroughHeadset : _googleCardboardHeadset ?= GoogleCardboardHeadset.new(_context, self, _pool)
+    _headset.draw
+  }
+
+  def drawEye(eye Eye, projectionMatrix Matrix, worldMaterial GPU.Material) {
+    const cameraDistance = 10
+    const cameraTarget = _mode.cameraTarget
+
+    _modelviewMatrix
+      .loadIdentity
+      .translateBy(eye == .LEFT ? EYE_SEPARATION_SCALE : eye == .RIGHT ? -EYE_SEPARATION_SCALE : 0, 0, 0)
+      .translateBy(0, 0, -cameraDistance)
+      .multiplyBy(_orientationMatrix)
+      .translateBy(-cameraTarget.x, -cameraTarget.y, -cameraTarget.z)
+
+    worldMaterial.setUniformMat4(GLSLX_NAME_MATRIX_MODELVIEW, _modelviewMatrix)
+    worldMaterial.setUniformMat4(GLSLX_NAME_MATRIX_PROJECTION, projectionMatrix)
+    worldMaterial.setUniformVec4(GLSLX_NAME_EYE, _orientationMatrix.m20, _orientationMatrix.m21, _orientationMatrix.m22,
+      cameraTarget.x * _orientationMatrix.m20 + cameraTarget.y * _orientationMatrix.m21 + cameraTarget.z * _orientationMatrix.m22 + cameraDistance - 3)
+
+    _mode.draw(_lines)
+    _voxels.draw(worldMaterial)
+    _lines.draw(worldMaterial)
+  }
+
+  def update(seconds double) {
+    if _hasDeviceOrientation {
+      # Try to render a frame ahead due to lag inherent in the pipeline
+      _deviceAlpha += _deviceAlphaRate * seconds
+      _deviceBeta += _deviceBetaRate * seconds
+      _deviceGamma += _deviceGammaRate * seconds
+
+      _orientationMatrix
+        .loadIdentity
+
+        # Take the screen rotation from the OS into account
+        .rotateBy(0, 0, 1, _screenOrientation * DEGREES_TO_RADIANS)
+
+        # Inverse of https://w3c.github.io/deviceorientation/spec-source-orientation.html
+        .rotateBy(0, 1, 0, -_deviceGamma * DEGREES_TO_RADIANS)
+        .rotateBy(1, 0, 0, -_deviceBeta * DEGREES_TO_RADIANS)
+        .rotateBy(0, 0, 1, -_deviceAlpha * DEGREES_TO_RADIANS)
+
+        # Identity should be when the back of the phone faces forward instead of down
+        .rotateBy(1, 0, 0, Math.PI / 2)
+    }
+
+    else {
+      _orientationMatrix
+        .loadIdentity
+        .rotateBy(1, 0, 0, _mouseAngleX)
+        .rotateBy(0, 1, 0, _mouseAngleY)
+    }
+
+    # Update the current mode
+    _mode.update(_inputState, _orientationMatrix, seconds)
+
+    # Update the FPS indicator
+    _fps = _fps * 0.9 + 0.1 / seconds
+    (window.top as dynamic).document.title = "\((_fps as dynamic).toFixed(1))fps"
+  }
+}

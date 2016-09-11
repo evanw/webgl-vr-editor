@@ -1,0 +1,161 @@
+@entry
+def main {
+  # Auto-refresh in debug mode
+  if !RELEASE && window == window.top {
+    enableAutoRefresh
+    return
+  }
+
+  var context GPU.HTMLContext = null
+
+  try { context = GPU.HTMLContext.new }
+  finally { if context == null { alert("Could not initialize WebGL") } }
+
+  const body = document.body
+  const canvas = context.gl.canvas
+  const style = canvas.style
+  const app = App.new(context)
+  var keys IntMap<int> = {}
+  var oldTime = performance.now
+
+  const KEY_LEFT = 37
+  const KEY_UP = 38
+  const KEY_RIGHT = 39
+  const KEY_DOWN = 40
+
+  const resize = => {
+    const width = innerWidth
+    const height = innerHeight
+    const ratio = devicePixelRatio
+    context.resize(Math.round(width * ratio) as int, Math.round(height * ratio) as int)
+  }
+
+  const tick fn() = => {
+    var newTime = performance.now
+    var velocityX = (keys.get(KEY_RIGHT, 0) | keys.get('D', 0)) - (keys.get(KEY_LEFT, 0) | keys.get('A', 0))
+    var velocityZ = (keys.get(KEY_DOWN, 0) | keys.get('S', 0)) - (keys.get(KEY_UP, 0) | keys.get('W', 0))
+    app.inputState.keyboardVelocity.setTo(velocityX, 0, velocityZ)
+    app.updateScreenOrientation(window.orientation)
+    app.update((newTime - oldTime) / 1000)
+    app.draw
+    oldTime = newTime
+    requestAnimationFrame(tick)
+  }
+
+  const updateHeadsetButtonState = (e HTMLTouchEvent) => {
+    e.preventDefault
+    app.inputState.headsetButton = !e.touches.isEmpty
+    canvas.requestFullscreen
+  }
+
+  style.position = "fixed"
+  style.left = "0"
+  style.top = "0"
+  style.width = "100%"
+  style.height = "100%"
+  body.appendChild(canvas)
+
+  document.addEventListener("keydown", (e HTMLKeyboardEvent) => {
+    var code = e.which
+    var shift = e.shiftKey
+    keys[code] = 1
+
+    if code >= 'A' && code <= 'Z' { app.handleKeyPress((code + (Key.A - 'A')) as Key, shift) }
+    else if code >= '0' && code <= '9' { app.handleKeyPress((code + (Key.N0 - '0')) as Key, shift) }
+  })
+
+  document.addEventListener("keyup", (e HTMLKeyboardEvent) => {
+    keys[e.which] = 0
+  })
+
+  window.addEventListener("blur", (e HTMLEvent) => {
+    keys = {}
+    app.inputState.mouseButton = false
+  })
+
+  document.addEventListener("mousedown", (e HTMLMouseEvent) => {
+    e.preventDefault
+    if document.pointerLockElement != canvas {
+      canvas.requestPointerLock
+    } else {
+      app.inputState.mouseButton = true
+    }
+  })
+
+  document.addEventListener("mouseup", (e HTMLMouseEvent) => {
+    app.inputState.mouseButton = false
+  })
+
+  document.addEventListener("mousemove", (e HTMLMouseEvent) => {
+    if document.pointerLockElement == canvas {
+      app.applyMouseMovement(e.movementX, e.movementY)
+    }
+  })
+
+  document.addEventListener("touchstart", updateHeadsetButtonState)
+  document.addEventListener("touchmove", updateHeadsetButtonState)
+  document.addEventListener("touchend", updateHeadsetButtonState)
+  document.addEventListener("touchcancel", updateHeadsetButtonState)
+
+  window.addEventListener("devicemotion", e => {
+    var rotationRate = (e as dynamic).rotationRate
+    var alphaRate = rotationRate ? rotationRate.alpha : null
+    var betaRate = rotationRate ? rotationRate.beta : null
+    var gammaRate = rotationRate ? rotationRate.gamma : null
+
+    if alphaRate != null && betaRate != null && gammaRate != null {
+      app.updateDeviceOrientationRate(alphaRate, betaRate, gammaRate)
+    }
+  })
+
+  window.addEventListener("deviceorientation", e => {
+    var alpha = (e as dynamic).alpha
+    var beta = (e as dynamic).beta
+    var gamma = (e as dynamic).gamma
+
+    if alpha != null && beta != null && gamma != null {
+      app.updateDeviceOrientation(alpha, beta, gamma)
+    }
+  })
+
+  window.addEventListener("resize", => resize())
+  resize()
+  tick()
+}
+
+def enableAutoRefresh {
+  var iframe = document.createElement("iframe") as HTMLIframeElement
+  var style = iframe.style
+  style.position = "absolute"
+  style.left = "0"
+  style.top = "0"
+  style.width = "100%"
+  style.height = "100%"
+  style.border = "none"
+  document.body.appendChild(iframe)
+  document.addEventListener("focus", => iframe.focus)
+  iframe.onload = => iframe.focus
+  iframe.src = location.href
+  iframe.contentWindow.location.href = location.href
+
+  const reloadAfterChange = (url string) => {
+    var source string = null
+    const check fn() = => {
+      var xhr = XMLHttpRequest.new
+      xhr.open("GET", url)
+      xhr.onload = => {
+        if source != null && source != xhr.responseText {
+          iframe.src = location.href
+          iframe.contentWindow.location.href = location.href
+        }
+        source = xhr.responseText
+      }
+      xhr.onloadend = => setTimeout(check, 500)
+      xhr.send
+    }
+    check()
+  }
+
+  # Refresh when the source code for the page changes
+  reloadAfterChange("main.js")
+}
