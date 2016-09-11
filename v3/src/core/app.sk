@@ -45,34 +45,15 @@ class App :: HeadsetDelegate {
   var _mouseAngleY = 0.0
   var _screenOrientation = 0.0
 
-  def new(context GPU.Context) {
+  def new(context GPU.Context, file Uint8Array) {
     _context = context
     _pool = GPU.BufferPool.new(context)
     _lines = Lines.new(context, _pool)
     _voxels = Voxels.new(context, _pool)
+    _voxels.loadFromFile(DataArray.new(file))
     _playMode = PlayMode.new(_voxels)
     _editMode = EditMode.new(_voxels)
     _passThroughHeadset = PassThroughHeadset.new(_context, self)
-
-    for x in -20..21 {
-      for z in -20..21 {
-        _voxels.set(x, -1, z, ((x ^ z) & 1) == 0 ? .ROCK : .DIRT)
-      }
-    }
-
-    _voxels.set(-5, -1, -5, .JUMP)
-    _voxels.set(-5, -1, 5, .JUMP)
-    _voxels.set(5, -1, -5, .JUMP)
-    _voxels.set(5, -1, 5, .JUMP)
-
-    for i in -10..11 {
-      _voxels.set(i, 2, -10, .DIRT)
-      _voxels.set(i, 2, 0, .DIRT)
-      _voxels.set(i, 2, 10, .DIRT)
-      _voxels.set(-10, 2, i, .DIRT)
-      _voxels.set(0, 2, i, .DIRT)
-      _voxels.set(10, 2, i, .DIRT)
-    }
 
     const isMobile = "Mobi" in navigator.userAgent
     _mode = isMobile ? _playMode : _editMode

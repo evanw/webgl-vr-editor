@@ -1,11 +1,19 @@
 @entry
-def main {
+def preMain {
   # Auto-refresh in debug mode
   if !RELEASE && window == window.top {
     enableAutoRefresh
     return
   }
 
+  var xhr = XMLHttpRequest.new
+  xhr.open("GET", "level.lvl")
+  xhr.responseType = "arraybuffer"
+  xhr.onload = => main(Uint8Array.new(xhr.response))
+  xhr.send
+}
+
+def main(level Uint8Array) {
   var context GPU.HTMLContext = null
 
   try { context = GPU.HTMLContext.new }
@@ -14,7 +22,7 @@ def main {
   const body = document.body
   const canvas = context.gl.canvas
   const style = canvas.style
-  const app = App.new(context)
+  const app = App.new(context, level)
   var keys IntMap<int> = {}
   var oldTime = performance.now
 
