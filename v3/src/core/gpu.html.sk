@@ -252,17 +252,25 @@ if TARGET == .JAVASCRIPT {
 
       def createTexture(format TextureFormat, width int, height int, pixels Uint8Array) Texture {
         assert(width > 0 && height > 0)
-        assert(pixels == null || pixels.length == width * height * 4)
+        assert(pixels == null || pixels.length == width * height * format.pixelFormat.byteCount)
         return HTMLTexture.new(self, format, width, height, pixels)
       }
 
       def createTextureFromURL(format TextureFormat, url string) Texture {
         var texture = createTexture(format, 1, 1, null)
-        _fetchPixels(url, (width, height, pixels) => texture.resize(width, height, pixels))
+        _fetchPixels(url, (width, height, pixels) => {
+          if format.pixelFormat == .LUMINANCE_8 {
+            const n = width * height
+            for i = 0; i < n; i++ { pixels[i] = pixels[i * 4] }
+            pixels = pixels.subarray(0, n)
+          }
+          texture.resize(width, height, pixels)
+        })
         return texture
       }
 
       def createTextureFromURLs(format TextureFormat, colorURL string, alphaURL string) Texture {
+        assert(format.pixelFormat != .LUMINANCE_8)
         var texture = createTexture(format, 1, 1, null)
         _fetchPixels(colorURL, (colorWidth, colorHeight, colorPixels) => {
           _fetchPixels(alphaURL, (alphaWidth, alphaHeight, alphaPixels) => {
@@ -924,7 +932,7 @@ if TARGET == .JAVASCRIPT {
       }
 
       def resize(width int, height int, pixels Uint8Array) {
-        assert(pixels == null || pixels.length == width * height * 4)
+        assert(pixels == null || pixels.length == width * height * _format.pixelFormat.byteCount)
 
         if width != _width || height != _height || pixels != null {
           _width = width
@@ -961,18 +969,19 @@ if TARGET == .JAVASCRIPT {
         # Format
         if _isFormatDirty {
           gl.bindTexture(gl.TEXTURE_2D, _texture)
-          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, _context.decodeFilter(format.magFilter))
-          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, _context.decodeFilter(format.minFilter))
-          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, format.wrap == .REPEAT ? gl.REPEAT : gl.CLAMP_TO_EDGE)
-          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, format.wrap == .REPEAT ? gl.REPEAT : gl.CLAMP_TO_EDGE)
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, _context.decodeFilter(_format.magFilter))
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, _context.decodeFilter(_format.minFilter))
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, _format.wrap == .REPEAT ? gl.REPEAT : gl.CLAMP_TO_EDGE)
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, _format.wrap == .REPEAT ? gl.REPEAT : gl.CLAMP_TO_EDGE)
           _isFormatDirty = false
         }
 
         # Resize
         if _isContentDirty {
+          var format = _format.pixelFormat == .LUMINANCE_8 ? gl.LUMINANCE : gl.RGBA
           gl.bindTexture(gl.TEXTURE_2D, _texture)
-          gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, _width, _height, 0, gl.RGBA, gl.UNSIGNED_BYTE, _pixels)
-          if format.minFilter == .LINEAR_MIPMAP_LINEAR { gl.generateMipmap(gl.TEXTURE_2D) }
+          gl.texImage2D(gl.TEXTURE_2D, 0, format, _width, _height, 0, format, gl.UNSIGNED_BYTE, _pixels)
+          if _format.minFilter == .LINEAR_MIPMAP_LINEAR { gl.generateMipmap(gl.TEXTURE_2D) }
           _isContentDirty = false
         }
 

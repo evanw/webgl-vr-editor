@@ -5,11 +5,13 @@ namespace GPU.VertexFormat {
 
 namespace App {
   const EYE_SEPARATION_SCALE = 0.1
+  const DISSOLVE_DISTANCE = 3.0
 }
 
 class App :: HeadsetDelegate {
   const _context GPU.Context
   const _pool GPU.BufferPool
+  const _texture GPU.Texture
   const _lines Lines
   const _voxels Voxels
   const _instructions = document.getElementById("instructions")
@@ -31,6 +33,7 @@ class App :: HeadsetDelegate {
   # Camera info
   const _modelviewMatrix = Matrix.new
   const _projectionMatrix = Matrix.new
+  const _eye = Vector3.new
 
   # Camera orientation info
   const _orientationMatrix = Matrix.new
@@ -48,6 +51,7 @@ class App :: HeadsetDelegate {
   def new(context GPU.Context, file Uint8Array) {
     _context = context
     _pool = GPU.BufferPool.new(context)
+    _texture = context.createTextureFromURL(.LUMINANCE_LINEAR_REPEAT, "texture.png")
     _lines = Lines.new(context, _pool)
     _voxels = Voxels.new(context, _pool)
     _voxels.loadFromFile(DataArray.new(file))
@@ -115,13 +119,19 @@ class App :: HeadsetDelegate {
       .multiplyBy(_orientationMatrix)
       .translateBy(-cameraTarget.x, -cameraTarget.y, -cameraTarget.z)
 
+    worldMaterial.setUniformSampler(GLSLX_NAME_TEXTURE, _texture, 0)
     worldMaterial.setUniformMat4(GLSLX_NAME_MATRIX_MODELVIEW, _modelviewMatrix)
     worldMaterial.setUniformMat4(GLSLX_NAME_MATRIX_PROJECTION, projectionMatrix)
     worldMaterial.setUniformVec4(GLSLX_NAME_EYE, _orientationMatrix.m20, _orientationMatrix.m21, _orientationMatrix.m22,
-      cameraTarget.x * _orientationMatrix.m20 + cameraTarget.y * _orientationMatrix.m21 + cameraTarget.z * _orientationMatrix.m22 + cameraDistance - 3)
+      cameraTarget.x * _orientationMatrix.m20 + cameraTarget.y * _orientationMatrix.m21 + cameraTarget.z * _orientationMatrix.m22 + cameraDistance - DISSOLVE_DISTANCE)
+
+    _eye.setTo(
+      cameraTarget.x + _orientationMatrix.m20 * cameraDistance,
+      cameraTarget.y + _orientationMatrix.m21 * cameraDistance,
+      cameraTarget.z + _orientationMatrix.m22 * cameraDistance)
 
     _mode.draw(_lines)
-    _voxels.draw(worldMaterial)
+    _voxels.draw(worldMaterial, _eye, _orientationMatrix)
     _lines.draw(worldMaterial)
   }
 

@@ -95,7 +95,7 @@ namespace GPU {
     FLOAT
     BYTE
 
-    def byteLength int {
+    def byteCount int {
       return self == FLOAT ? 4 : 1
     }
   }
@@ -121,7 +121,7 @@ namespace GPU {
 
     def add(name string, type AttributeType, count int) VertexFormat {
       _attributes.append(Attribute.new(name, type, count, _stride))
-      _stride += count * type.byteLength
+      _stride += count * type.byteCount
       return self
     }
   }
@@ -135,11 +135,12 @@ namespace GPU {
   }
 
   enum PixelFormat {
+    LUMINANCE_8
     RGBA_32
     DEPTH_24_STENCIL_8
 
-    def byteLength int {
-      return 4
+    def byteCount int {
+      return self == LUMINANCE_8 ? 1 : 4
     }
   }
 
@@ -163,9 +164,11 @@ namespace GPU {
 
   namespace TextureFormat {
     const DEPTH_STENCIL = new(.DEPTH_24_STENCIL_8, .NEAREST, .NEAREST, .CLAMP)
+    const LUMINANCE_LINEAR_REPEAT = new(.LUMINANCE_8, .LINEAR, .LINEAR, .REPEAT)
     const RGBA_LINEAR_CLAMP = new(.RGBA_32, .LINEAR, .LINEAR, .CLAMP)
-    const RGBA_NEAREST_CLAMP = new(.RGBA_32, .NEAREST, .NEAREST, .CLAMP)
     const RGBA_LINEAR_MIPMAP_LINEAR_REPEAT = new(.RGBA_32, .LINEAR_MIPMAP_LINEAR, .LINEAR, .REPEAT)
+    const RGBA_LINEAR_REPEAT = new(.RGBA_32, .LINEAR, .LINEAR, .REPEAT)
+    const RGBA_NEAREST_CLAMP = new(.RGBA_32, .NEAREST, .NEAREST, .CLAMP)
   }
 
   interface Texture {
