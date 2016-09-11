@@ -8,6 +8,11 @@ interface Headset {
   def draw
 }
 
+namespace Headset {
+  const NEAR = 1
+  const FAR = 100
+}
+
 interface HeadsetDelegate {
   def drawEye(eye Eye, projectionMatrix Matrix, worldMaterial GPU.Material)
 }
@@ -26,7 +31,7 @@ class PassThroughHeadset :: Headset {
 
   def draw {
     var context = _context
-    _projectionMatrix.createPerspective(60 * Math.PI / 180, context.width / (context.height as double), 0.1, 100)
+    _projectionMatrix.createPerspective(60 * Math.PI / 180, context.width / (context.height as double), Headset.NEAR, Headset.FAR)
     context.clear(.ALL)
     context.setDepthMode(.READ_WRITE)
     context.setCopyBlendState
@@ -58,7 +63,7 @@ class GoogleCardboardHeadset :: Headset {
     const lensFrustum = LibGVR.getLeftEyeVisibleTanAngles(viewer, device)
     const noLensFrustum = LibGVR.getLeftEyeNoLensTanAngles(viewer, device)
     const viewport = LibGVR.getLeftEyeVisibleScreenRect(viewer, device, noLensFrustum)
-    const near = 0.1
+    const near = Headset.NEAR
 
     # The math is easier using the whole viewport instead of just the left half
     viewport[0] = viewport[0] * 2
@@ -69,7 +74,7 @@ class GoogleCardboardHeadset :: Headset {
     _worldMaterial.setUniformVec4(GLSLX_NAME_NO_LENS_FRUSTUM, noLensFrustum[0], noLensFrustum[1], noLensFrustum[2], noLensFrustum[3])
     _worldMaterial.setUniformVec4(GLSLX_NAME_VIEWPORT, viewport[0], viewport[1], viewport[2], viewport[3])
 
-    _leftProjectionMatrix.createFrustum(lensFrustum[0] * near, lensFrustum[2] * near, lensFrustum[3] * near, lensFrustum[1] * near, near, 100)
+    _leftProjectionMatrix.createFrustum(lensFrustum[0] * near, lensFrustum[2] * near, lensFrustum[3] * near, lensFrustum[1] * near, near, Headset.FAR)
     _rightProjectionMatrix.copyFrom(_leftProjectionMatrix)
     _rightProjectionMatrix.m02 = -_rightProjectionMatrix.m02
 

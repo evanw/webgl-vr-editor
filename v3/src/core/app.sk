@@ -12,6 +12,7 @@ class App :: HeadsetDelegate {
   const _pool GPU.BufferPool
   const _lines Lines
   const _voxels Voxels
+  const _instructions = document.getElementById("instructions")
 
   # Modes
   const _playMode PlayMode
@@ -73,7 +74,9 @@ class App :: HeadsetDelegate {
       _voxels.set(10, 2, i, .DIRT)
     }
 
-    _mode = "Mobi" in navigator.userAgent ? _playMode : _editMode
+    const isMobile = "Mobi" in navigator.userAgent
+    _mode = isMobile ? _playMode : _editMode
+    _instructions.style.display = isMobile ? "none" : "block"
   }
 
   def handleKeyPress(key Key, shift bool) {
@@ -81,6 +84,7 @@ class App :: HeadsetDelegate {
       var cameraTarget = _mode.cameraTarget
       _mode = _mode is EditMode ? _playMode : _editMode
       _mode.cameraTarget = cameraTarget
+      _instructions.style.display = _mode is PlayMode ? "none" : "block"
     } else {
       _mode.handleKeyPress(key, shift)
     }
