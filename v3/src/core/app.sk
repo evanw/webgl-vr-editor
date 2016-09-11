@@ -14,6 +14,8 @@ class App :: HeadsetDelegate {
   const _voxels Voxels
 
   # Modes
+  const _playMode PlayMode
+  const _editMode EditMode
   var _mode Mode
 
   # Headsets
@@ -47,6 +49,8 @@ class App :: HeadsetDelegate {
     _pool = GPU.BufferPool.new(context)
     _lines = Lines.new(context, _pool)
     _voxels = Voxels.new(context, _pool)
+    _playMode = PlayMode.new(_voxels)
+    _editMode = EditMode.new(_voxels)
     _passThroughHeadset = PassThroughHeadset.new(_context, self)
 
     for x in -20..21 {
@@ -69,13 +73,13 @@ class App :: HeadsetDelegate {
       _voxels.set(10, 2, i, .DIRT)
     }
 
-    _mode = "Mobi" in navigator.userAgent ? PlayMode.new(_voxels) : EditMode.new(_voxels)
+    _mode = "Mobi" in navigator.userAgent ? _playMode : _editMode
   }
 
   def handleKeyPress(key Key, shift bool) {
     if key == .P {
       var cameraTarget = _mode.cameraTarget
-      _mode = _mode is EditMode ? PlayMode.new(_voxels) : EditMode.new(_voxels)
+      _mode = _mode is EditMode ? _playMode : _editMode
       _mode.cameraTarget = cameraTarget
     } else {
       _mode.handleKeyPress(key, shift)

@@ -1,0 +1,54 @@
+class UndoTracker {
+  const _voxels Voxels
+  const _undoStack List<Commit> = []
+  const _redoStack List<Commit> = []
+  var _changes List<Change> = []
+
+  def set(x int, y int, z int, newCell Cell) {
+    const oldCell = _voxels.get(x, y, z)
+    if oldCell != newCell {
+      _changes.append(Change.new(x, y, z, oldCell, newCell))
+      _voxels.set(x, y, z, newCell)
+    }
+  }
+
+  def undo {
+    commit
+    if !_undoStack.isEmpty {
+      const commit = _undoStack.takeLast
+      for change in commit.changes { _voxels.set(change.x, change.y, change.z, change.oldCell) }
+      _redoStack.append(commit)
+    }
+  }
+
+  def redo {
+    commit
+    if !_redoStack.isEmpty {
+      const commit = _redoStack.takeLast
+      for change in commit.changes { _voxels.set(change.x, change.y, change.z, change.newCell) }
+      _undoStack.append(commit)
+    }
+  }
+
+  def commit {
+    if !_changes.isEmpty {
+      _undoStack.append(Commit.new(_changes))
+      _redoStack.resize(0, null)
+      _changes = []
+    }
+  }
+}
+
+namespace UndoTracker {
+  class Change {
+    const x int
+    const y int
+    const z int
+    const oldCell Cell
+    const newCell Cell
+  }
+
+  class Commit {
+    const changes List<Change>
+  }
+}

@@ -18,10 +18,12 @@ def main {
   var keys IntMap<int> = {}
   var oldTime = performance.now
 
+  const KEY_BACKSPACE = 8
   const KEY_LEFT = 37
   const KEY_UP = 38
   const KEY_RIGHT = 39
   const KEY_DOWN = 40
+  const KEY_DELETE = 49
 
   const resize = => {
     const width = innerWidth
@@ -48,6 +50,11 @@ def main {
     canvas.requestFullscreen
   }
 
+  const handleKeyPress = (e HTMLKeyboardEvent, key Key) => {
+    e.preventDefault
+    app.handleKeyPress(key, e.shiftKey)
+  }
+
   style.position = "fixed"
   style.left = "0"
   style.top = "0"
@@ -60,8 +67,17 @@ def main {
     var shift = e.shiftKey
     keys[code] = 1
 
-    if code >= 'A' && code <= 'Z' { app.handleKeyPress((code + (Key.A - 'A')) as Key, shift) }
-    else if code >= '0' && code <= '9' { app.handleKeyPress((code + (Key.N0 - '0')) as Key, shift) }
+    if !e.ctrlKey && !e.metaKey {
+      if code >= 'A' && code <= 'Z' { handleKeyPress(e, (code + (Key.A - 'A')) as Key) }
+      else if code >= '0' && code <= '9' { handleKeyPress(e, (code + (Key.N0 - '0')) as Key) }
+      else if code == KEY_BACKSPACE || code == KEY_DELETE { handleKeyPress(e, .DELETE) }
+      else if code == KEY_LEFT { handleKeyPress(e, .LEFT) }
+      else if code == KEY_UP { handleKeyPress(e, .UP) }
+      else if code == KEY_RIGHT { handleKeyPress(e, .RIGHT) }
+      else if code == KEY_DOWN { handleKeyPress(e, .DOWN) }
+    }
+    else if code == 'Y' { handleKeyPress(e, .REDO) }
+    else if code == 'Z' { handleKeyPress(e, shift ? .REDO : .UNDO) }
   })
 
   document.addEventListener("keyup", (e HTMLKeyboardEvent) => {

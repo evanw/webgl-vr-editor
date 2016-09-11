@@ -1,4 +1,12 @@
 enum Key {
+  DELETE
+  UNDO
+  REDO
+  LEFT
+  UP
+  RIGHT
+  DOWN
+
   # Letters
   A
   B
@@ -58,6 +66,7 @@ interface Mode {
 
 class EditMode :: Mode {
   const _voxels Voxels
+  const _tracker UndoTracker
   const _cameraTarget = Vector3.new.setTo(0.5, 0.5, 0.5)
 
   var _forwardX = 0
@@ -73,6 +82,11 @@ class EditMode :: Mode {
   var _anchorX = 0
   var _anchorY = 0
   var _anchorZ = 0
+
+  def new(voxels Voxels) {
+    _voxels = voxels
+    _tracker = UndoTracker.new(voxels)
+  }
 
   def cameraTarget Vector3 {
     return _cameraTarget
@@ -101,26 +115,30 @@ class EditMode :: Mode {
     for x in Math.min(_cursorX, _anchorX)..Math.max(_cursorX, _anchorX) + 1 {
       for y in Math.min(_cursorY, _anchorY)..Math.max(_cursorY, _anchorY) + 1 {
         for z in Math.min(_cursorZ, _anchorZ)..Math.max(_cursorZ, _anchorZ) + 1 {
-          _voxels.set(x, y, z, cell)
+          _tracker.set(x, y, z, cell)
         }
       }
     }
+    _tracker.commit
   }
 
   def handleKeyPress(key Key, shift bool) {
     switch key {
-      case .A { _moveBy(-_rightX, 0, -_rightZ, shift) }
-      case .D { _moveBy(_rightX, 0, _rightZ, shift) }
+      case .A, .LEFT { _moveBy(-_rightX, 0, -_rightZ, shift) }
+      case .D, .RIGHT { _moveBy(_rightX, 0, _rightZ, shift) }
       case .E { _moveBy(0, 1, 0, shift) }
       case .Q { _moveBy(0, -1, 0, shift) }
-      case .S { _moveBy(-_forwardX, 0, -_forwardZ, shift) }
-      case .W { _moveBy(_forwardX, 0, _forwardZ, shift) }
+      case .S, .DOWN { _moveBy(-_forwardX, 0, -_forwardZ, shift) }
+      case .W, .UP { _moveBy(_forwardX, 0, _forwardZ, shift) }
 
-      case .N1 { _setAll(.EMPTY) }
-      case .N2 { _setAll(.DIRT) }
-      case .N3 { _setAll(.ROCK) }
-      case .N4 { _setAll(.WATER) }
-      case .N5 { _setAll(.JUMP) }
+      case .DELETE { _setAll(.EMPTY) }
+      case .UNDO { _tracker.undo }
+      case .REDO { _tracker.redo }
+
+      case .N1 { _setAll(.DIRT) }
+      case .N2 { _setAll(.ROCK) }
+      case .N3 { _setAll(.WATER) }
+      case .N4 { _setAll(.JUMP) }
     }
   }
 

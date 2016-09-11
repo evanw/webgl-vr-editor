@@ -223,7 +223,7 @@ namespace Voxels {
                 }
 
                 _appendQuad(globalX, globalY, globalZ, centerX, centerY, centerZ, .Z, .Y, color)
-                _appendQuad(globalX, globalY, globalZ, centerX, centerY, centerZ, .X, .Z, color)
+                _appendQuad(globalX, globalY, globalZ, centerX, centerY, centerZ, .X, .Z, cell == .DIRT ? Color.new(0x7F, 0x5F, 0x3F) : color)
                 _appendQuad(globalX, globalY, globalZ, centerX, centerY, centerZ, .Y, .X, color)
                 _appendQuad(globalX + 1, globalY, globalZ, centerX, centerY, centerZ, .Y, .Z, color)
                 _appendQuad(globalX, globalY + 1, globalZ, centerX, centerY, centerZ, .Z, .X, cell == .DIRT ? Color.new(0x7F, 0xAF, 0x4F) : color)
