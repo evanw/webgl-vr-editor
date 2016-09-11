@@ -115,9 +115,11 @@ if TARGET == .JAVASCRIPT {
       def exitPointerLock
 
       def createElement(tag string) HTMLElement
+      def createElementAnchor HTMLAnchorElement { return createElement("a") as HTMLAnchorElement }
       def createElementAudio HTMLAudioElement { return dynamic.Audio.new() }
-      def createElementImage HTMLImageElement { return dynamic.Image.new() }
       def createElementCanvas HTMLCanvasElement { return createElement("canvas") as HTMLCanvasElement }
+      def createElementImage HTMLImageElement { return dynamic.Image.new() }
+      def createElementInput HTMLInputElement { return createElement("input") as HTMLInputElement }
       def getElementById(id string) HTMLElement
       def querySelector(selector string) HTMLElement
       def querySelectorAll(selectors string) List<HTMLElement> { return HTML.asList<HTMLElement>((self as dynamic).querySelectorAll(selectors)) }
@@ -374,6 +376,7 @@ if TARGET == .JAVASCRIPT {
     }
 
     class HTMLImageElement : HTMLElement {
+      var alt string
       var src string
       var onload fn()
       var onerror fn()
@@ -383,12 +386,48 @@ if TARGET == .JAVASCRIPT {
       const naturalHeight int
     }
 
+    class HTMLInputElement : HTMLElement {
+      var accept string
+      var autocapitalize bool
+      var autocomplete string
+      var autofocus bool
+      var checked bool
+      var defaultChecked bool
+      var defaultValue string
+      var disabled bool
+      var indeterminate bool
+      var max string
+      var maxLength string
+      var min string
+      var multiple bool
+      var name string
+      var pattern string
+      var placeholder string
+      var readOnly bool
+      var required bool
+      var selectionDirection string
+      var selectionEnd int
+      var selectionStart int
+      var size int
+      var step int
+      var type string
+      var value string
+
+      def files List<HTMLFile> { return HTML.asList<HTMLFile>((self as dynamic).files) }
+      def select
+    }
+
     class HTMLVideoElement : HTMLElement {
       var src string
       const width int
       const height int
       const videoWidth int
       const videoHeight int
+    }
+
+    class HTMLAnchorElement : HTMLElement {
+      var download string
+      var href string
     }
 
     class HTMLCanvasElement : HTMLElement {

@@ -55,6 +55,26 @@ def main {
     app.handleKeyPress(key, e.shiftKey)
   }
 
+  var previousFileInput HTMLInputElement = null
+
+  const showOpenFileDialog = (callback fn(Uint8Array)) => {
+    previousFileInput?.parentNode.removeChild(previousFileInput)
+    previousFileInput = document.createElementInput
+    previousFileInput.type = "file"
+
+    previousFileInput.addEventListener("change", (event HTMLEvent) => {
+      const files = previousFileInput.files
+      if files.count == 1 {
+        const reader = FileReader.new
+        reader.onload = => callback(Uint8Array.new(reader.resultAsArrayBuffer))
+        reader.readAsArrayBuffer(files.first)
+      }
+    })
+
+    body.appendChild(previousFileInput)
+    previousFileInput.click
+  }
+
   style.position = "fixed"
   style.left = "0"
   style.top = "0"
@@ -67,6 +87,7 @@ def main {
     var shift = e.shiftKey
     keys[code] = 1
 
+    # Normal key events
     if !e.ctrlKey && !e.metaKey {
       if code >= 'A' && code <= 'Z' { handleKeyPress(e, (code + (Key.A - 'A')) as Key) }
       else if code >= '0' && code <= '9' { handleKeyPress(e, (code + (Key.N0 - '0')) as Key) }
@@ -76,8 +97,22 @@ def main {
       else if code == KEY_RIGHT { handleKeyPress(e, .RIGHT) }
       else if code == KEY_DOWN { handleKeyPress(e, .DOWN) }
     }
-    else if code == 'Y' { handleKeyPress(e, .REDO) }
-    else if code == 'Z' { handleKeyPress(e, shift ? .REDO : .UNDO) }
+
+    # Keyboard shortcuts
+    else {
+      if code == 'O' {
+        e.preventDefault
+        showOpenFileDialog(bytes => app.openFile(bytes))
+      }
+
+      else if code == 'S' {
+        e.preventDefault
+        app.saveFile
+      }
+
+      else if code == 'Y' { handleKeyPress(e, .REDO) }
+      else if code == 'Z' { handleKeyPress(e, shift ? .REDO : .UNDO) }
+    }
   })
 
   document.addEventListener("keyup", (e HTMLKeyboardEvent) => {

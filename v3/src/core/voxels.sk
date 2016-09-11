@@ -22,8 +22,8 @@ class TraceResult {
 class Voxels {
   const _context GPU.Context
   const _pool GPU.BufferPool
-  const _chunkMap IntMap<Chunk> = {}
-  const _chunkList List<Chunk> = []
+  var _chunkMap IntMap<Chunk> = {}
+  var _chunkList List<Chunk> = []
 
   def isEmpty(xmin int, ymin int, zmin int, xmax int, ymax int, zmax int) bool {
     for z = zmin; z <= zmax; z++ {
@@ -127,15 +127,80 @@ class Voxels {
 
     return false
   }
+
+  def loadFromFile(file DataArray) bool {
+    for i in 0..FILE_HEADER.count {
+      if file.byteOffset + 1 > file.byteCount { return false }
+      if FILE_HEADER[i] != file.readByte { return false }
+    }
+
+    if file.byteOffset + 4 > file.byteCount { return false }
+    var chunkCount = file.readInt
+    if file.byteOffset + chunkCount * (4 * 3 + CHUNK_SIZE) > file.byteCount { return false }
+
+    for chunk in _chunkList {
+      chunk.free
+    }
+
+    _chunkMap = {}
+    _chunkList = []
+
+    while chunkCount > 0 {
+      var originX = file.readInt << CELLS_SHIFT
+      var originY = file.readInt << CELLS_SHIFT
+      var originZ = file.readInt << CELLS_SHIFT
+      if !_isValid(originX, originY, originZ) { return false }
+      var chunk = Chunk.new(originX, originY, originZ)
+      for i in 0..CHUNK_SIZE { chunk.cells[i] = file.readByte }
+      _chunkMap[_key(originX, originY, originZ)] = chunk
+      _chunkList.append(chunk)
+      chunkCount--
+    }
+
+    return true
+  }
+
+  def saveToFile DataArray {
+    var array = DataArray.new
+    var chunkCount = 0
+
+    for chunk in _chunkList {
+      if !chunk.isEmpty {
+        chunkCount++
+      }
+    }
+
+    for i in 0..FILE_HEADER.count {
+      array.appendByte(FILE_HEADER[i])
+    }
+
+    array.appendInt(chunkCount)
+
+    for chunk in _chunkList {
+      if !chunk.isEmpty {
+        array.appendInt(chunk.originX >> CELLS_SHIFT)
+        array.appendInt(chunk.originY >> CELLS_SHIFT)
+        array.appendInt(chunk.originZ >> CELLS_SHIFT)
+
+        for i in 0..CHUNK_SIZE {
+          array.appendByte(chunk.cells[i])
+        }
+      }
+    }
+
+    return array
+  }
 }
 
 namespace Voxels {
+  const FILE_HEADER = "webglvrlevel\x01\0\0\0"
   const _vertices = DataArray.new
 
   # Each chunk has a CELLS_SIZE * CELLS_SIZE * CELLS_SIZE block of cells
   const CELLS_SHIFT = 3
   const CELLS_SIZE = 1 << CELLS_SHIFT
   const CELLS_MASK = (1 << CELLS_SHIFT) - 1
+  const CHUNK_SIZE = CELLS_SIZE * CELLS_SIZE * CELLS_SIZE
 
   # Chunk coordinates fit in a 32-bit integer (1 in chunk coordinates corresponds to CELLS_SIZE in cell coordinates)
   const CHUNK_BITS_X = 11
@@ -164,7 +229,7 @@ namespace Voxels {
     const originX int
     const originY int
     const originZ int
-    const cells = Uint8Array.new(CELLS_SIZE * CELLS_SIZE * CELLS_SIZE)
+    const cells = Uint8Array.new(CHUNK_SIZE)
 
     var _cachedArea GPU.BufferArea = null
 
@@ -185,7 +250,20 @@ namespace Voxels {
         return
       }
 
+      free
       cells[index] = cell
+    }
+
+    def isEmpty bool {
+      for i in 0..CHUNK_SIZE {
+        if cells[i] as Cell != .EMPTY {
+          return false
+        }
+      }
+      return true
+    }
+
+    def free {
       _cachedArea?.free
       _cachedArea = null
     }

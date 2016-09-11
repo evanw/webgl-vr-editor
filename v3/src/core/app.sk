@@ -180,4 +180,19 @@ class App :: HeadsetDelegate {
     _fps = _fps * 0.9 + 0.1 / seconds
     (window.top as dynamic).document.title = "\((_fps as dynamic).toFixed(1))fps"
   }
+
+  def openFile(bytes Uint8Array) {
+    _voxels.loadFromFile(DataArray.new(bytes))
+  }
+
+  def saveFile {
+    var url = URL.createObjectURL(Blob.new([_voxels.saveToFile.bytes]))
+    var link = document.createElementAnchor
+    document.body.appendChild(link)
+    link.download = "level.lvl"
+    link.href = url
+    link.click
+    document.body.removeChild(link)
+    setTimeout(=> URL.revokeObjectURL(url), 1000)
+  }
 }
