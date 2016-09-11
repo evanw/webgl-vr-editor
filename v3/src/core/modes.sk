@@ -190,6 +190,7 @@ class PlayMode :: Mode {
   const _playerBox = CollisionBox.new(0.1, 0, 0.1, 0.8, 0.8, 0.8)
   const _cameraTarget = Vector3.new
   const _horizontalVelocity = Vector3.new
+  const _horizontalDelta = Vector3.new
   const _forward = Vector3.new
   const _right = Vector3.new
   var _verticalVelocity = 0.0
@@ -220,16 +221,25 @@ class PlayMode :: Mode {
   }
 
   def update(inputState InputState, orientation Matrix, seconds double) {
-    # Update eye position
-    _horizontalVelocity.setTo(inputState.keyboardVelocity.x, 0, inputState.keyboardVelocity.z)
+    if _isOnFloor {
+      # Move using the keyboard
+      _horizontalVelocity.setTo(inputState.keyboardVelocity.x, 0, inputState.keyboardVelocity.z)
 
-    # Press the headset button to move forward
-    if inputState.headsetButton {
-      _horizontalVelocity.z -= 1
+      # Press the headset button to move forward
+      if inputState.headsetButton {
+        _horizontalVelocity.z -= 1
+      }
+
+      # Move relative to the camera
+      _forward.setTo(orientation.m20, 0, orientation.m22).normalize
+      _right.setTo(orientation.m00, 0, orientation.m02).normalize
+      _horizontalVelocity.setTo(
+        _forward.x * _horizontalVelocity.z + _right.x * _horizontalVelocity.x, 0,
+        _forward.z * _horizontalVelocity.z + _right.z * _horizontalVelocity.x)
     }
 
     # Scale velocity by the timestep
-    _horizontalVelocity.normalize.scaleBy(seconds * 6)
+    _horizontalDelta.copyFrom(_horizontalVelocity).normalize.scaleBy(seconds * 6)
 
     # Jump when on the floor
     if _isOnFloor && _voxels.get(Math.floor(_playerBox.centerX) as int, Math.floor(_playerBox.originY) as int - 1, Math.floor(_playerBox.centerZ) as int) == .JUMP {
@@ -242,17 +252,20 @@ class PlayMode :: Mode {
       _verticalVelocity -= seconds * 16
     }
 
+    var expectedOriginX = _playerBox.originX + _horizontalDelta.x
     var expectedOriginY = _playerBox.originY + _verticalVelocity * seconds
-    _forward.setTo(orientation.m20, 0, orientation.m22).normalize
-    _right.setTo(orientation.m00, 0, orientation.m02).normalize
+    var expectedOriginZ = _playerBox.originZ + _horizontalDelta.z
 
     # Collide with the world
-    _playerBox.moveBy(_voxels,
-      _forward.x * _horizontalVelocity.z + _right.x * _horizontalVelocity.x,
-      _verticalVelocity * seconds,
-      _forward.z * _horizontalVelocity.z + _right.z * _horizontalVelocity.x)
+    _playerBox.moveBy(_voxels, _horizontalDelta.x, _verticalVelocity * seconds, _horizontalDelta.z)
 
-    # Update vertical state tracking
+    # Update velocity
+    if _playerBox.originX != expectedOriginX {
+      _horizontalVelocity.x = 0
+    }
+    if _playerBox.originZ != expectedOriginZ {
+      _horizontalVelocity.z = 0
+    }
     if _playerBox.originY != expectedOriginY {
       _verticalVelocity = -2 * CollisionBox.EPSILON / seconds
       _isOnFloor = _verticalVelocity < 0
