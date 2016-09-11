@@ -46,7 +46,7 @@ class CollisionBox {
     if deltaX < 0 {
       var limit = Math.floor(originX) as int
       for x = floorX - 1; x >= limit; x-- {
-        if !voxels.isEmpty(x, floorY, floorZ, x, ceilY, ceilZ) {
+        if !voxels.isEmptyForCollision(x, floorY, floorZ, x, ceilY, ceilZ) {
           originX = 1 + EPSILON + x
           break
         }
@@ -56,7 +56,7 @@ class CollisionBox {
     else if deltaX > 0 {
       var limit = Math.ceil(originX + sizeX) as int - 1
       for x = ceilX + 1; x <= limit; x++ {
-        if !voxels.isEmpty(x, floorY, floorZ, x, ceilY, ceilZ) {
+        if !voxels.isEmptyForCollision(x, floorY, floorZ, x, ceilY, ceilZ) {
           originX = x - sizeX - EPSILON
           break
         }
@@ -78,7 +78,7 @@ class CollisionBox {
     if deltaY < 0 {
       var limit = Math.floor(originY) as int
       for y = floorY - 1; y >= limit; y-- {
-        if !voxels.isEmpty(floorX, y, floorZ, ceilX, y, ceilZ) {
+        if !voxels.isEmptyForCollision(floorX, y, floorZ, ceilX, y, ceilZ) {
           originY = 1 + EPSILON + y
           break
         }
@@ -88,7 +88,7 @@ class CollisionBox {
     else if deltaY > 0 {
       var limit = Math.ceil(originY + sizeY) as int - 1
       for y = ceilY + 1; y <= limit; y++ {
-        if !voxels.isEmpty(floorX, y, floorZ, ceilX, y, ceilZ) {
+        if !voxels.isEmptyForCollision(floorX, y, floorZ, ceilX, y, ceilZ) {
           originY = y - sizeY - EPSILON
           break
         }
@@ -110,7 +110,7 @@ class CollisionBox {
     if deltaZ < 0 {
       var limit = Math.floor(originZ) as int
       for z = floorZ - 1; z >= limit; z-- {
-        if !voxels.isEmpty(floorX, floorY, z, ceilX, ceilY, z) {
+        if !voxels.isEmptyForCollision(floorX, floorY, z, ceilX, ceilY, z) {
           originZ = 1 + EPSILON + z
           break
         }
@@ -120,7 +120,7 @@ class CollisionBox {
     else if deltaZ > 0 {
       var limit = Math.ceil(originZ + sizeZ) as int - 1
       for z = ceilZ + 1; z <= limit; z++ {
-        if !voxels.isEmpty(floorX, floorY, z, ceilX, ceilY, z) {
+        if !voxels.isEmptyForCollision(floorX, floorY, z, ceilX, ceilY, z) {
           originZ = z - sizeZ - EPSILON
           break
         }

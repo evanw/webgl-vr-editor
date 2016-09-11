@@ -120,6 +120,8 @@ def main(level Uint8Array) {
 
       else if code == 'Y' { handleKeyPress(e, .REDO) }
       else if code == 'Z' { handleKeyPress(e, shift ? .REDO : .UNDO) }
+
+      keys = {}
     }
   })
 

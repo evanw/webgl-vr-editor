@@ -25,11 +25,12 @@ class Voxels {
   var _chunkMap IntMap<Chunk> = {}
   var _chunkList List<Chunk> = []
 
-  def isEmpty(xmin int, ymin int, zmin int, xmax int, ymax int, zmax int) bool {
+  def isEmptyForCollision(xmin int, ymin int, zmin int, xmax int, ymax int, zmax int) bool {
     for z = zmin; z <= zmax; z++ {
       for y = ymin; y <= ymax; y++ {
         for x = xmin; x <= xmax; x++ {
-          if get(x, y, z) != .EMPTY {
+          const cell = get(x, y, z)
+          if cell != .EMPTY && cell != .WATER {
             return false
           }
         }
