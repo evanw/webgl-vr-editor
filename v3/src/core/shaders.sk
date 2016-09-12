@@ -6,7 +6,7 @@ const GLSLX_SOURCE_SHADOW_VERTEX = "precision highp float;uniform mat4 f;uniform
 const GLSLX_SOURCE_SHADOW_FRAGMENT = "precision highp float;uniform sampler2D s;varying float b;varying vec3 r;varying vec4 u;void main(){float a=texture2D(s,r.xy).x;gl_FragColor=vec4(u.xyz*(b*float(a+.007843>r.z)),1);}"
 const GLSLX_SOURCE_WORLD_VERTEX = "precision highp float;uniform mat4 f,x;uniform vec4 l;attribute vec3 d;attribute vec4 k,j,t;varying float b;varying vec2 m,i;vec2 g(vec4 a){return a.xz*.996109+a.yw*.003891;}vec4 v(){vec3 a=d+k.xyz-.5;return x*f*vec4(mix(d,a,clamp(dot(l.xyz,a)-l.w,0.,1.)),1);}void main(){b=k.w,i=g(t),m=g(j),gl_Position=v();}"
 const GLSLX_SOURCE_WORLD_VERTEX_DISTORTED = "precision highp float;uniform mat4 f,x;uniform float p;uniform vec4 l,o,n,h,q;attribute vec3 d;attribute vec4 k,j,t;varying float b;varying vec2 m,i;vec2 g(vec4 a){return a.xz*.996109+a.yw*.003891;}vec4 v(){vec3 a=d+k.xyz-.5;return x*f*vec4(mix(d,a,clamp(dot(l.xyz,a)-l.w,0.,1.)),1);}void main(){vec4 a=v();float c=abs(a.w),y=mix(n.x,n.z,(.5+a.x/c*.5*p-q.x)/q.z),w=mix(n.w,n.y,(.5+a.y/c*.5-q.y)/q.w),e=y*y+w*w,z=1.+e*(o.x+e*(o.y+e*(o.z+e*o.w)));a.x=((y*z-h.x)/(h.z-h.x)*2.-1.)*c*p,a.y=((w*z-h.w)/(h.y-h.w)*2.-1.)*c,b=k.w,i=g(t),m=g(j),gl_Position=a;}"
-const GLSLX_SOURCE_WORLD_FRAGMENT = "precision highp float;uniform sampler2D D,s;varying float b;varying vec2 m,i;void main(){gl_FragColor=texture2D(D,m)*(b*(1.-.1*float(texture2D(s,i).x>.5)));}"
+const GLSLX_SOURCE_WORLD_FRAGMENT = "precision highp float;uniform sampler2D D,s;varying float b;varying vec2 m,i;void main(){gl_FragColor=(.05+.95*texture2D(D,m))*(b*(1.-.1*float(texture2D(s,i).x>.5)));}"
 
 const GLSLX_NAME_POSITION3 = "d"
 const GLSLX_NAME_MATRIX_MODELVIEW = "f"

@@ -116,6 +116,6 @@ export void worldVertexDistorted() {
 
 export void worldFragment() {
   gl_FragColor =
-    texture2D(lightmap, _lightmap2) *
+    (0.05 + 0.95 * texture2D(lightmap, _lightmap2)) *
     (_value * (1.0 - 0.1 * float(texture2D(texture, _texture2).x > 0.5)));
 }
