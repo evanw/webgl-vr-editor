@@ -17,6 +17,9 @@ if TARGET == .JAVASCRIPT {
     def confirm(message string) bool
     def prompt(message string, defaultValue string) string
 
+    def atob(value string) string
+    def btoa(value string) string
+
     class FormData {
       def append(name string, value string)
       def append(name string, value string, filename string)

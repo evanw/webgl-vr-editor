@@ -3,25 +3,19 @@ class Lines {
   const _pool GPU.BufferPool
 
   def append(x0 double, y0 double, z0 double, x1 double, y1 double, z1 double, color Color) {
-    var cx = (x0 + x1) * 0.5
-    var cy = (y0 + y1) * 0.5
-    var cz = (z0 + z1) * 0.5
-
     _vertices.appendFloat(x0)
     _vertices.appendFloat(y0)
     _vertices.appendFloat(z0)
-    _vertices.appendFloat(cx)
-    _vertices.appendFloat(cy)
-    _vertices.appendFloat(cz)
-    _vertices.appendColor(color)
+    _vertices.appendColor(.TRANSPARENT)
+    _vertices.appendColor(.TRANSPARENT)
+    _vertices.appendColor(.TRANSPARENT)
 
     _vertices.appendFloat(x1)
     _vertices.appendFloat(y1)
     _vertices.appendFloat(z1)
-    _vertices.appendFloat(cx)
-    _vertices.appendFloat(cy)
-    _vertices.appendFloat(cz)
-    _vertices.appendColor(color)
+    _vertices.appendColor(.TRANSPARENT)
+    _vertices.appendColor(.TRANSPARENT)
+    _vertices.appendColor(.TRANSPARENT)
   }
 
   def appendCube(x0 double, y0 double, z0 double, x1 double, y1 double, z1 double, color Color) {

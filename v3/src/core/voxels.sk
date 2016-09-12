@@ -5,25 +5,31 @@ enum Cell {
   JUMP
   ROCK
   WATER
+
+  def color Color {
+    switch self {
+      case .DIRT { return Color.new(0xBF, 0x7F, 0x3F) }
+      case .JUMP { return Color.new(0xFF, 0xFF, 0) }
+      case .ROCK { return Color.new(0xBF, 0xBF, 0xBF) }
+      case .WATER { return Color.new(0, 0x3F, 0xBF) }
+      default { return .TRANSPARENT }
+    }
+  }
 }
 
-class TraceResult {
-  var cellX = 0
-  var cellY = 0
-  var cellZ = 0
-
-  var normalX = 0
-  var normalY = 0
-  var normalZ = 0
-
-  var distance = 0.0
+enum LoadMode {
+  CELLS_ONLY
+  CELLS_AND_MESH
 }
 
 class Voxels {
   const _context GPU.Context
   const _pool GPU.BufferPool
+  const _lightmap GPU.Texture
+  const _quadMesh = QuadMesh.new
   var _chunkMap IntMap<Chunk> = {}
   var _chunkList List<Chunk> = []
+  var _needsCompile = true
 
   def isEmptyForCollision(xmin int, ymin int, zmin int, xmax int, ymax int, zmax int) bool {
     for z = zmin; z <= zmax; z++ {
@@ -56,10 +62,23 @@ class Voxels {
       _chunkList.append(chunk)
     }
 
-    chunk?.set(x & CELLS_MASK, y & CELLS_MASK, z & CELLS_MASK, cell)
+    if chunk != null && chunk.set(x & CELLS_MASK, y & CELLS_MASK, z & CELLS_MASK, cell) {
+      _needsCompile = true
+    }
+  }
+
+  def compileIfNeeded {
+    if _needsCompile {
+      for chunk in _chunkList { chunk.generateQuads(_quadMesh) }
+      _quadMesh.allocateLightmap
+      _lightmap.resize(_quadMesh.lightmapWidth, _quadMesh.lightmapHeight, _quadMesh.lightmapData)
+      _needsCompile = false
+    }
   }
 
   def draw(material GPU.Material, eye Vector3, orientation Matrix) {
+    compileIfNeeded
+
     for chunk in _chunkList {
       chunk.distanceToEye = _temp.setTo(chunk.centerX, chunk.centerY, chunk.centerZ).subtract(eye).lengthSquared
     }
@@ -98,7 +117,7 @@ class Voxels {
       }
 
       _context.draw(.TRIANGLES, material,
-        lookDistance + CORNER_DISTANCE + App.DISSOLVE_DISTANCE < eyeDistance ? chunk.sparseArea(_pool) : chunk.denseArea(_pool),
+        lookDistance + CORNER_DISTANCE + App.DISSOLVE_DISTANCE < eyeDistance ? chunk.sparseArea(_pool, _quadMesh) : chunk.denseArea(_pool, _quadMesh),
         .CULL_BACK_FACES)
     }
   }
@@ -116,71 +135,7 @@ class Voxels {
     }
   }
 
-  def trace(x double, y double, z double, rayX double, rayY double, rayZ double, result TraceResult) bool {
-    var cellX = result.cellX = Math.floor(x) as int
-    var cellY = result.cellY = Math.floor(y) as int
-    var cellZ = result.cellZ = Math.floor(z) as int
-
-    result.normalX = 0
-    result.normalY = 0
-    result.normalZ = 0
-
-    const floorX = (cellX - x) / rayX
-    const floorY = (cellY - y) / rayY
-    const floorZ = (cellZ - z) / rayZ
-
-    const ceilX = (cellX + 1 - x) / rayX
-    const ceilY = (cellY + 1 - y) / rayY
-    const ceilZ = (cellZ + 1 - z) / rayZ
-
-    const stepX = rayX > 0 ? 1 : rayX < 0 ? -1 : 0
-    const stepY = rayY > 0 ? 1 : rayY < 0 ? -1 : 0
-    const stepZ = rayZ > 0 ? 1 : rayZ < 0 ? -1 : 0
-
-    const deltaX = stepX / rayX
-    const deltaY = stepY / rayY
-    const deltaZ = stepZ / rayZ
-
-    var maxX = floorX > ceilX ? floorX : ceilX
-    var maxY = floorY > ceilY ? floorY : ceilY
-    var maxZ = floorZ > ceilZ ? floorZ : ceilZ
-    var axis = 0
-
-    for i in 0..1000 {
-      result.distance = maxX < maxY
-        ? maxX < maxZ ? maxX : maxZ
-        : maxY < maxZ ? maxY : maxZ
-
-      if result.distance == maxX {
-        result.cellX += stepX
-        maxX += deltaX
-        axis = 0
-      }
-
-      else if result.distance == maxY {
-        result.cellY += stepY
-        maxY += deltaY
-        axis = 1
-      }
-
-      else {
-        result.cellZ += stepZ
-        maxZ += deltaZ
-        axis = 2
-      }
-
-      if get(result.cellX, result.cellY, result.cellZ) != .EMPTY {
-        if axis == 0 { result.normalX = -stepX }
-        else if axis == 1 { result.normalY = -stepY }
-        else { result.normalZ = -stepZ }
-        return true
-      }
-    }
-
-    return false
-  }
-
-  def loadFromFile(file DataArray) bool {
+  def loadFromFile(file DataArray, mode LoadMode) bool {
     for i in 0..FILE_HEADER.count {
       if file.byteOffset + 1 > file.byteCount { return false }
       if FILE_HEADER[i] != file.readByte { return false }
@@ -191,29 +146,46 @@ class Voxels {
     if file.byteOffset + chunkCount * (4 * 3 + CHUNK_SIZE) > file.byteCount { return false }
 
     for chunk in _chunkList {
-      chunk.free
+      chunk.freeAreas
     }
 
     _chunkMap = {}
     _chunkList = []
+    _needsCompile = true
 
     while chunkCount > 0 {
-      var originX = file.readInt << CELLS_SHIFT
-      var originY = file.readInt << CELLS_SHIFT
-      var originZ = file.readInt << CELLS_SHIFT
+      const originX = file.readInt << CELLS_SHIFT
+      const originY = file.readInt << CELLS_SHIFT
+      const originZ = file.readInt << CELLS_SHIFT
       if !_isValid(originX, originY, originZ) { return false }
-      var chunk = Chunk.new(originX, originY, originZ)
+      const chunk = Chunk.new(originX, originY, originZ)
+      const key = _key(originX, originY, originZ)
+      if key in _chunkMap { return false }
       for i in 0..CHUNK_SIZE { chunk.cells[i] = file.readByte }
-      _chunkMap[_key(originX, originY, originZ)] = chunk
+      _chunkMap[key] = chunk
       _chunkList.append(chunk)
       chunkCount--
+    }
+
+    if mode == .CELLS_AND_MESH {
+      if !_quadMesh.loadFromFile(file) {
+        return false
+      }
+
+      for chunk in _chunkList {
+        if !chunk.triangleMesh.loadFromFile(file) {
+          return false
+        }
+      }
+
+      _needsCompile = false
     }
 
     return true
   }
 
   def saveToFile DataArray {
-    var array = DataArray.new
+    var file = DataArray.new
     var chunkCount = 0
 
     for chunk in _chunkList {
@@ -223,24 +195,36 @@ class Voxels {
     }
 
     for i in 0..FILE_HEADER.count {
-      array.appendByte(FILE_HEADER[i])
+      file.appendByte(FILE_HEADER[i])
     }
 
-    array.appendInt(chunkCount)
+    file.appendInt(chunkCount)
 
     for chunk in _chunkList {
       if !chunk.isEmpty {
-        array.appendInt(chunk.originX >> CELLS_SHIFT)
-        array.appendInt(chunk.originY >> CELLS_SHIFT)
-        array.appendInt(chunk.originZ >> CELLS_SHIFT)
+        file.appendInt(chunk.originX >> CELLS_SHIFT)
+        file.appendInt(chunk.originY >> CELLS_SHIFT)
+        file.appendInt(chunk.originZ >> CELLS_SHIFT)
 
         for i in 0..CHUNK_SIZE {
-          array.appendByte(chunk.cells[i])
+          file.appendByte(chunk.cells[i])
         }
       }
     }
 
-    return array
+    _quadMesh.saveToFile(file)
+
+    for chunk in _chunkList {
+      if !chunk.isEmpty {
+        chunk.triangleMesh.saveToFile(file)
+      }
+    }
+
+    return file
+  }
+
+  def saveLightmapToFile Uint8Array {
+    return _quadMesh.saveLightmapToFile
   }
 }
 
@@ -288,6 +272,7 @@ namespace Voxels {
     const originY int
     const originZ int
     const cells = Uint8Array.new(CHUNK_SIZE)
+    const triangleMesh = TriangleMesh.new
 
     var distanceToEye = 0.0 # Filled out during rendering
     var _cachedDenseArea GPU.BufferArea = null
@@ -304,18 +289,18 @@ namespace Voxels {
       return cells[localX | localY << CELLS_SHIFT | localZ << 2 * CELLS_SHIFT] as Cell
     }
 
-    def set(localX int, localY int, localZ int, cell Cell) {
+    def set(localX int, localY int, localZ int, cell Cell) bool {
       assert(0 <= localX && localX < CELLS_SIZE)
       assert(0 <= localY && localY < CELLS_SIZE)
       assert(0 <= localZ && localZ < CELLS_SIZE)
       var index = localX | localY << CELLS_SHIFT | localZ << 2 * CELLS_SHIFT
 
       if cells[index] == cell {
-        return
+        return false
       }
 
-      free
       cells[index] = cell
+      return true
     }
 
     def isEmpty bool {
@@ -327,7 +312,7 @@ namespace Voxels {
       return true
     }
 
-    def free {
+    def freeAreas {
       _cachedDenseArea?.free
       _cachedSparseArea?.free
 
@@ -335,18 +320,19 @@ namespace Voxels {
       _cachedSparseArea = null
     }
 
-    def denseArea(pool GPU.BufferPool) GPU.BufferArea {
-      _cachedDenseArea ?= _generateArea(pool, .DENSE)
+    def denseArea(pool GPU.BufferPool, quadMesh QuadMesh) GPU.BufferArea {
+      _cachedDenseArea ?= pool.allocate(App.WORLD_VERTEX_FORMAT, triangleMesh.compileWorldVertices(.VISIBLE_AND_HIDDEN, quadMesh).bytes)
       return _cachedDenseArea
     }
 
-    def sparseArea(pool GPU.BufferPool) GPU.BufferArea {
-      _cachedSparseArea ?= _generateArea(pool, .SPARSE)
+    def sparseArea(pool GPU.BufferPool, quadMesh QuadMesh) GPU.BufferArea {
+      _cachedSparseArea ?= pool.allocate(App.WORLD_VERTEX_FORMAT, triangleMesh.compileWorldVertices(.VISIBLE_ONLY, quadMesh).bytes)
       return _cachedSparseArea
     }
 
-    def _generateArea(pool GPU.BufferPool, mode AreaMode) GPU.BufferArea {
-      _vertices.clear
+    def generateQuads(quadMesh QuadMesh) {
+      triangleMesh.triangles = []
+      freeAreas
 
       var originX = self.originX
       var originY = self.originY
@@ -358,14 +344,23 @@ namespace Voxels {
 
       # -y
       for y in 0..CELLS_SIZE {
+        const oy = originY + y
+
         for x in 0..CELLS_SIZE {
+          const ox = originX + x
+
           for z in 0..CELLS_SIZE {
+            const oz = originZ + z
             const cell = cells[x | y << CELLS_SHIFT | z << 2 * CELLS_SHIFT] as Cell
-            if cell != .EMPTY && (mode == .DENSE || y == 0 || cells[x | (y - 1) << CELLS_SHIFT | z << 2 * CELLS_SHIFT] as Cell == .EMPTY) {
-              _appendQuad(
-                originX + x, originY + y, originZ + z,
-                originX + x + 0.5, originY + y + 0.5, originZ + z + 0.5,
-                .X, .Z, cell)
+
+            if cell != .EMPTY {
+              _generateQuad(quadMesh,
+                ox, oy, oz,
+                ox + 0.5, oy + 0.5, oz + 0.5,
+                1, 0, 0,
+                0, 0, 1,
+                cell.color,
+                y > 0 && cells[x | (y - 1) << CELLS_SHIFT | z << 2 * CELLS_SHIFT] as Cell != .EMPTY)
             }
           }
         }
@@ -374,14 +369,23 @@ namespace Voxels {
       # +y
       for y_inv in 0..CELLS_SIZE {
         const y = y_inv ^ CELLS_MASK
+        const oy = originY + y + 1
+
         for x in 0..CELLS_SIZE {
+          const ox = originX + x
+
           for z in 0..CELLS_SIZE {
+            const oz = originZ + z
             const cell = cells[x | y << CELLS_SHIFT | z << 2 * CELLS_SHIFT] as Cell
-            if cell != .EMPTY && (mode == .DENSE || y == CELLS_MASK || cells[x | (y + 1) << CELLS_SHIFT | z << 2 * CELLS_SHIFT] as Cell == .EMPTY) {
-              _appendQuad(
-                originX + x, originY + 1 + y, originZ + z,
-                originX + x + 0.5, originY + y + 0.5, originZ + z + 0.5,
-                .Z, .X, cell)
+
+            if cell != .EMPTY {
+              _generateQuad(quadMesh,
+                ox, oy, oz,
+                ox + 0.5, oy - 0.5, oz + 0.5,
+                0, 0, 1,
+                1, 0, 0,
+                cell.color,
+                y < CELLS_MASK && cells[x | (y + 1) << CELLS_SHIFT | z << 2 * CELLS_SHIFT] as Cell != .EMPTY)
             }
           }
         }
@@ -389,14 +393,23 @@ namespace Voxels {
 
       # -x
       for x in 0..CELLS_SIZE {
+        const ox = originX + x
+
         for y in 0..CELLS_SIZE {
+          const oy = originY + y
+
           for z in 0..CELLS_SIZE {
+            const oz = originZ + z
             const cell = cells[x | y << CELLS_SHIFT | z << 2 * CELLS_SHIFT] as Cell
-            if cell != .EMPTY && (mode == .DENSE || x == 0 || cells[(x - 1) | y << CELLS_SHIFT | z << 2 * CELLS_SHIFT] as Cell == .EMPTY) {
-              _appendQuad(
-                originX + x, originY + y, originZ + z,
-                originX + x + 0.5, originY + y + 0.5, originZ + z + 0.5,
-                .Z, .Y, cell)
+
+            if cell != .EMPTY {
+              _generateQuad(quadMesh,
+                ox, oy, oz,
+                ox + 0.5, oy + 0.5, oz + 0.5,
+                0, 0, 1,
+                0, 1, 0,
+                cell.color,
+                x > 0 && cells[(x - 1) | y << CELLS_SHIFT | z << 2 * CELLS_SHIFT] as Cell != .EMPTY)
             }
           }
         }
@@ -405,14 +418,23 @@ namespace Voxels {
       # +x
       for x_inv in 0..CELLS_SIZE {
         const x = x_inv ^ CELLS_MASK
+        const ox = originX + x + 1
+
         for y in 0..CELLS_SIZE {
+          const oy = originY + y
+
           for z in 0..CELLS_SIZE {
+            const oz = originZ + z
             const cell = cells[x | y << CELLS_SHIFT | z << 2 * CELLS_SHIFT] as Cell
-            if cell != .EMPTY && (mode == .DENSE || x == CELLS_MASK || cells[(x + 1) | y << CELLS_SHIFT | z << 2 * CELLS_SHIFT] as Cell == .EMPTY) {
-              _appendQuad(
-                originX + x + 1, originY + y, originZ + z,
-                originX + x + 0.5, originY + y + 0.5, originZ + z + 0.5,
-                .Y, .Z, cell)
+
+            if cell != .EMPTY {
+              _generateQuad(quadMesh,
+                ox, oy, oz,
+                ox - 0.5, oy + 0.5, oz + 0.5,
+                0, 1, 0,
+                0, 0, 1,
+                cell.color,
+                x < CELLS_MASK && cells[(x + 1) | y << CELLS_SHIFT | z << 2 * CELLS_SHIFT] as Cell != .EMPTY)
             }
           }
         }
@@ -420,14 +442,23 @@ namespace Voxels {
 
       # -z
       for z in 0..CELLS_SIZE {
+        const oz = originZ + z
+
         for x in 0..CELLS_SIZE {
+          const ox = originX + x
+
           for y in 0..CELLS_SIZE {
+            const oy = originY + y
             const cell = cells[x | y << CELLS_SHIFT | z << 2 * CELLS_SHIFT] as Cell
-            if cell != .EMPTY && (mode == .DENSE || z == 0 || cells[x | y << CELLS_SHIFT | (z - 1) << 2 * CELLS_SHIFT] as Cell == .EMPTY) {
-              _appendQuad(
-                originX + x, originY + y, originZ + z,
-                originX + x + 0.5, originY + y + 0.5, originZ + z + 0.5,
-                .Y, .X, cell)
+
+            if cell != .EMPTY {
+              _generateQuad(quadMesh,
+                ox, oy, oz,
+                ox + 0.5, oy + 0.5, oz + 0.5,
+                0, 1, 0,
+                1, 0, 0,
+                cell.color,
+                z > 0 && cells[x | y << CELLS_SHIFT | (z - 1) << 2 * CELLS_SHIFT] as Cell != .EMPTY)
             }
           }
         }
@@ -436,119 +467,59 @@ namespace Voxels {
       # +z
       for z_inv in 0..CELLS_SIZE {
         const z = z_inv ^ CELLS_MASK
+        const oz = originZ + z + 1
+
         for x in 0..CELLS_SIZE {
+          const ox = originX + x
+
           for y in 0..CELLS_SIZE {
+            const oy = originY + y
             const cell = cells[x | y << CELLS_SHIFT | z << 2 * CELLS_SHIFT] as Cell
-            if cell != .EMPTY && (mode == .DENSE || z == CELLS_MASK || cells[x | y << CELLS_SHIFT | (z + 1) << 2 * CELLS_SHIFT] as Cell == .EMPTY) {
-              _appendQuad(
-                originX + x, originY + y, originZ + 1 + z,
-                originX + x + 0.5, originY + y + 0.5, originZ + z + 0.5,
-                .X, .Y, cell)
+
+            if cell != .EMPTY {
+              _generateQuad(quadMesh,
+                ox, oy, oz,
+                ox + 0.5, oy + 0.5, oz - 0.5,
+                1, 0, 0,
+                0, 1, 0,
+                cell.color,
+                z < CELLS_MASK && cells[x | y << CELLS_SHIFT | (z + 1) << 2 * CELLS_SHIFT] as Cell != .EMPTY)
             }
           }
         }
       }
-
-      return pool.allocate(GPU.VertexFormat.POSITION_F3_CENTER_F3_COLOR_B4, _vertices.bytes)
     }
 
-    def _packUV(s int, t int, cell Cell, ds int, dt int) {
-      _vertices.appendColor(Color.new(
-        ((s % 3 + 3) % 3 + ds) * 0x55,
-        ((t % 3 + 3) % 3 + dt) * 0x55,
-        cell, 0))
-    }
+    def _generateQuad(
+      quadMesh QuadMesh,
+      x double, y double, z double,
+      cx double, cy double, cz double,
+      ux double, uy double, uz double,
+      vx double, vy double, vz double,
+      color Color,
+      isHidden bool
+    ) {
+      var s = (x * ux + y * uy + z * uz) / 3
+      var t = (x * vx + y * vy + z * vz) / 3
+      var index = quadMesh.quads.count
 
-    def _appendQuad(x int, y int, z int, cx double, cy double, cz double, u Delta, v Delta, cell Cell) {
-      const ux = x + u.x
-      const uy = y + u.y
-      const uz = z + u.z
+      s -= Math.floor(s)
+      t -= Math.floor(t)
 
-      const vx = x + v.x
-      const vy = y + v.y
-      const vz = z + v.z
+      quadMesh.quads.append(Quad.new(
+        x, y, z,
+        cx, cy, cz,
+        ux, uy, uz,
+        vx, vy, vz,
+        s, t,
+        s + 1.0 / 3, t + 1.0 / 3,
+        0, 0,
+        0, 0,
+        color,
+        isHidden))
 
-      const uvx = ux + vx - x
-      const uvy = uy + vy - y
-      const uvz = uz + vz - z
-
-      const s = x * u.x + y * u.y + z * u.z
-      const t = x * v.x + y * v.y + z * v.z
-
-      _vertices.appendFloat(x)
-      _vertices.appendFloat(y)
-      _vertices.appendFloat(z)
-      _vertices.appendFloat(cx)
-      _vertices.appendFloat(cy)
-      _vertices.appendFloat(cz)
-      _packUV(s, t, cell, 0, 0)
-
-      _vertices.appendFloat(ux)
-      _vertices.appendFloat(uy)
-      _vertices.appendFloat(uz)
-      _vertices.appendFloat(cx)
-      _vertices.appendFloat(cy)
-      _vertices.appendFloat(cz)
-      _packUV(s, t, cell, 1, 0)
-
-      _vertices.appendFloat(uvx)
-      _vertices.appendFloat(uvy)
-      _vertices.appendFloat(uvz)
-      _vertices.appendFloat(cx)
-      _vertices.appendFloat(cy)
-      _vertices.appendFloat(cz)
-      _packUV(s, t, cell, 1, 1)
-
-      _vertices.appendFloat(x)
-      _vertices.appendFloat(y)
-      _vertices.appendFloat(z)
-      _vertices.appendFloat(cx)
-      _vertices.appendFloat(cy)
-      _vertices.appendFloat(cz)
-      _packUV(s, t, cell, 0, 0)
-
-      _vertices.appendFloat(uvx)
-      _vertices.appendFloat(uvy)
-      _vertices.appendFloat(uvz)
-      _vertices.appendFloat(cx)
-      _vertices.appendFloat(cy)
-      _vertices.appendFloat(cz)
-      _packUV(s, t, cell, 1, 1)
-
-      _vertices.appendFloat(vx)
-      _vertices.appendFloat(vy)
-      _vertices.appendFloat(vz)
-      _vertices.appendFloat(cx)
-      _vertices.appendFloat(cy)
-      _vertices.appendFloat(cz)
-      _packUV(s, t, cell, 0, 1)
-    }
-  }
-
-  type Delta : int {
-    def x int {
-      return self as int & 1
-    }
-
-    def y int {
-      return self as int >> 1 & 1
-    }
-
-    def z int {
-      return self as int >> 2
-    }
-  }
-
-  namespace Delta {
-    const X = new(1, 0, 0)
-    const Y = new(0, 1, 0)
-    const Z = new(0, 0, 1)
-
-    def new(x int, y int, z int) Delta {
-      assert(x == 0 || x == 1)
-      assert(y == 0 || y == 1)
-      assert(z == 0 || z == 1)
-      return (x | y << 1 | z << 2) as Delta
+      triangleMesh.triangles.append(Triangle.new(index, 0, 0, 1, 0, 1, 1))
+      triangleMesh.triangles.append(Triangle.new(index, 0, 0, 1, 1, 0, 1))
     }
   }
 }

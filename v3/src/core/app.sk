@@ -1,9 +1,13 @@
-namespace GPU.VertexFormat {
-  const POSITION_F3 = VertexFormat.new.add(GLSLX_NAME_POSITION3, .FLOAT, 3)
-  const POSITION_F3_CENTER_F3_COLOR_B4 = VertexFormat.new.add(GLSLX_NAME_POSITION3, .FLOAT, 3).add(GLSLX_NAME_CENTER3, .FLOAT, 3).add(GLSLX_NAME_COLOR4, .BYTE, 4)
-}
-
 namespace App {
+  const POSITION_F3 = GPU.VertexFormat.new
+    .add(GLSLX_NAME_POSITION3, .FLOAT, 3)
+
+  const WORLD_VERTEX_FORMAT = GPU.VertexFormat.new
+    .add(GLSLX_NAME_POSITION3, .FLOAT, 3)
+    .add(GLSLX_NAME_TEXTURE4, .BYTE, 4)
+    .add(GLSLX_NAME_LIGHTMAP4, .BYTE, 4)
+    .add(GLSLX_NAME_CENTER4, .BYTE, 4)
+
   const EYE_SEPARATION_SCALE = 0.1
   const DISSOLVE_DISTANCE = 3.0
 }
@@ -12,6 +16,7 @@ class App :: HeadsetDelegate {
   const _context GPU.Context
   const _pool GPU.BufferPool
   const _texture GPU.Texture
+  const _lightmap GPU.Texture
   const _lines Lines
   const _voxels Voxels
   const _instructions = document.getElementById("instructions")
@@ -52,16 +57,14 @@ class App :: HeadsetDelegate {
     _context = context
     _pool = GPU.BufferPool.new(context)
     _texture = context.createTextureFromURL(.LUMINANCE_LINEAR_REPEAT, "texture.png")
+    _lightmap = context.createTextureFromURL(.RGBA_LINEAR_CLAMP, "lightmap.png")
     _lines = Lines.new(context, _pool)
-    _voxels = Voxels.new(context, _pool)
-    _voxels.loadFromFile(DataArray.new(file))
-    _playMode = PlayMode.new(_voxels)
+    _voxels = Voxels.new(context, _pool, _lightmap)
+    _voxels.loadFromFile(DataArray.new(file), .CELLS_AND_MESH)
     _editMode = EditMode.new(_voxels)
+    _playMode = PlayMode.new(_voxels)
+    _mode = _playMode
     _passThroughHeadset = PassThroughHeadset.new(_context, self)
-
-    const isMobile = "Mobi" in navigator.userAgent
-    _mode = isMobile ? _playMode : _editMode
-    _instructions.style.display = isMobile ? "none" : "block"
   }
 
   def handleKeyPress(key Key, shift bool) {
@@ -120,6 +123,7 @@ class App :: HeadsetDelegate {
       .translateBy(-cameraTarget.x, -cameraTarget.y, -cameraTarget.z)
 
     worldMaterial.setUniformSampler(GLSLX_NAME_TEXTURE, _texture, 0)
+    worldMaterial.setUniformSampler(GLSLX_NAME_LIGHTMAP, _lightmap, 1)
     worldMaterial.setUniformMat4(GLSLX_NAME_MATRIX_MODELVIEW, _modelviewMatrix)
     worldMaterial.setUniformMat4(GLSLX_NAME_MATRIX_PROJECTION, projectionMatrix)
     worldMaterial.setUniformVec4(GLSLX_NAME_EYE, _orientationMatrix.m20, _orientationMatrix.m21, _orientationMatrix.m22,
@@ -173,17 +177,22 @@ class App :: HeadsetDelegate {
   }
 
   def openFile(bytes Uint8Array) {
-    _voxels.loadFromFile(DataArray.new(bytes))
+    _voxels.loadFromFile(DataArray.new(bytes), .CELLS_ONLY)
   }
 
   def saveFile {
-    var url = URL.createObjectURL(Blob.new([_voxels.saveToFile.bytes]))
-    var link = document.createElementAnchor
-    document.body.appendChild(link)
-    link.download = "level.lvl"
-    link.href = url
-    link.click
-    document.body.removeChild(link)
-    setTimeout(=> URL.revokeObjectURL(url), 1000)
+    downloadFile("level.lvl", _voxels.saveToFile.bytes)
+    downloadFile("lightmap.png", _voxels.saveLightmapToFile)
   }
+}
+
+def downloadFile(name string, bytes Uint8Array) {
+  var url = URL.createObjectURL(Blob.new([bytes]))
+  var link = document.createElementAnchor
+  document.body.appendChild(link)
+  link.download = name
+  link.href = url
+  link.click
+  document.body.removeChild(link)
+  setTimeout(=> URL.revokeObjectURL(url), 1000)
 }

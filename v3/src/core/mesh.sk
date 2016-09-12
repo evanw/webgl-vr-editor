@@ -1,0 +1,326 @@
+class Triangle {
+  const quad int
+
+  const quadU0 double
+  const quadV0 double
+
+  const quadU1 double
+  const quadV1 double
+
+  const quadU2 double
+  const quadV2 double
+}
+
+class Quad {
+  const x double
+  const y double
+  const z double
+
+  const cx double
+  const cy double
+  const cz double
+
+  const ux double
+  const uy double
+  const uz double
+
+  const vx double
+  const vy double
+  const vz double
+
+  const textureS0 double
+  const textureT0 double
+
+  const textureS1 double
+  const textureT1 double
+
+  var lightmapS0 double
+  var lightmapT0 double
+
+  var lightmapS1 double
+  var lightmapT1 double
+
+  const color Color
+  const isHidden bool
+}
+
+enum CompileMode {
+  VISIBLE_ONLY
+  VISIBLE_AND_HIDDEN
+}
+
+class TriangleMesh {
+  var triangles List<Triangle> = []
+
+  def loadFromFile(file DataArray) bool {
+    triangles = []
+
+    if file.byteOffset + 4 > file.byteCount { return false }
+    const trianglesCount = file.readInt
+    if file.byteOffset + 4 * 7 * trianglesCount > file.byteCount { return false }
+
+    for i in 0..trianglesCount {
+      triangles.append(Triangle.new(
+        file.readInt,
+        file.readFloat, file.readFloat,
+        file.readFloat, file.readFloat,
+        file.readFloat, file.readFloat))
+    }
+
+    return true
+  }
+
+  def saveToFile(file DataArray) {
+    file.appendInt(triangles.count)
+
+    for tri in triangles {
+      file.appendInt(tri.quad)
+
+      file.appendFloat(tri.quadU0)
+      file.appendFloat(tri.quadV0)
+
+      file.appendFloat(tri.quadU1)
+      file.appendFloat(tri.quadV1)
+
+      file.appendFloat(tri.quadU2)
+      file.appendFloat(tri.quadV2)
+    }
+  }
+
+  # struct WorldVertex {
+  #   highp vec3 position;
+  #   lowp vec4 texture; // texture.xz * (255.0 * 256.0 / 65535.0) + texture.yw * (255.0 / 65535.0)
+  #   lowp vec4 lightmap; // lightmap.xz * (255.0 * 256.0 / 65535.0) + lightmap.yw * (255.0 / 65535.0)
+  #   lowp vec4 centerOffset; // position + centerOffset.xyz - 0.5
+  # };
+  def compileWorldVertices(mode CompileMode, quadMesh QuadMesh) DataArray {
+    const file = DataArray.new
+    const quads = quadMesh.quads
+
+    for tri in triangles {
+      const quad = quads[tri.quad]
+
+      if mode == .VISIBLE_ONLY && quad.isHidden {
+        continue
+      }
+
+      _compileWorldVertex(file, quad, tri.quadU0, tri.quadV0)
+      _compileWorldVertex(file, quad, tri.quadU1, tri.quadV1)
+      _compileWorldVertex(file, quad, tri.quadU2, tri.quadV2)
+    }
+
+    return file
+  }
+
+  def _compileWorldVertex(file DataArray, quad Quad, u double, v double) {
+    const x = quad.x + quad.ux * u + quad.vx * v
+    const y = quad.y + quad.uy * u + quad.vy * v
+    const z = quad.z + quad.uz * u + quad.vz * v
+
+    const textureS = ((quad.textureS0 + (quad.textureS1 - quad.textureS0) * u) * 65535 + 0.5) as int
+    const textureT = ((quad.textureT0 + (quad.textureT1 - quad.textureT0) * v) * 65535 + 0.5) as int
+
+    const lightmapS = ((quad.lightmapS0 + (quad.lightmapS1 - quad.lightmapS0) * u) * 65535 + 0.5) as int
+    const lightmapT = ((quad.lightmapT0 + (quad.lightmapT1 - quad.lightmapT0) * v) * 65535 + 0.5) as int
+
+    file.appendFloat(x)
+    file.appendFloat(y)
+    file.appendFloat(z)
+
+    file.appendByte(textureS >> 8)
+    file.appendByte(textureS & 255)
+    file.appendByte(textureT >> 8)
+    file.appendByte(textureT & 255)
+
+    file.appendByte(lightmapS >> 8)
+    file.appendByte(lightmapS & 255)
+    file.appendByte(lightmapT >> 8)
+    file.appendByte(lightmapT & 255)
+
+    # Support center offsets up to ±0.5
+    file.appendByte(Math.round(127.5 + (quad.cx - x) * 255) as int)
+    file.appendByte(Math.round(127.5 + (quad.cy - y) * 255) as int)
+    file.appendByte(Math.round(127.5 + (quad.cz - z) * 255) as int)
+    file.appendByte(quad.isHidden ? 0 : 255)
+  }
+}
+
+class QuadMesh {
+  var quads List<Quad> = []
+  var lightmapWidth = 1
+  var lightmapHeight = 1
+  var lightmapData = Uint8Array.new(4)
+
+  def loadFromFile(file DataArray) bool {
+    quads = []
+
+    if file.byteOffset + 4 * 3 > file.byteCount { return false }
+    const quadsCount = file.readInt
+    if file.byteOffset + 4 * 22 * quadsCount > file.byteCount { return false }
+
+    for i in 0..quadsCount {
+      quads.append(Quad.new(
+        file.readFloat, file.readFloat, file.readFloat,
+        file.readFloat, file.readFloat, file.readFloat,
+        file.readFloat, file.readFloat, file.readFloat,
+        file.readFloat, file.readFloat, file.readFloat,
+        file.readFloat, file.readFloat,
+        file.readFloat, file.readFloat,
+        file.readFloat, file.readFloat,
+        file.readFloat, file.readFloat,
+        file.readColor,
+        file.readInt as bool))
+    }
+
+    return true
+  }
+
+  def saveToFile(file DataArray) {
+    file.appendInt(quads.count)
+
+    for quad in quads {
+      file.appendFloat(quad.x)
+      file.appendFloat(quad.y)
+      file.appendFloat(quad.z)
+
+      file.appendFloat(quad.cx)
+      file.appendFloat(quad.cy)
+      file.appendFloat(quad.cz)
+
+      file.appendFloat(quad.ux)
+      file.appendFloat(quad.uy)
+      file.appendFloat(quad.uz)
+
+      file.appendFloat(quad.vx)
+      file.appendFloat(quad.vy)
+      file.appendFloat(quad.vz)
+
+      file.appendFloat(quad.textureS0)
+      file.appendFloat(quad.textureT0)
+
+      file.appendFloat(quad.textureS1)
+      file.appendFloat(quad.textureT1)
+
+      file.appendFloat(quad.lightmapS0)
+      file.appendFloat(quad.lightmapT0)
+
+      file.appendFloat(quad.lightmapS1)
+      file.appendFloat(quad.lightmapT1)
+
+      file.appendColor(quad.color)
+      file.appendInt(quad.isHidden as int)
+    }
+  }
+
+  def saveLightmapToFile Uint8Array {
+    var canvas = document.createElementCanvas
+    var context = canvas.getContext2D
+    canvas.width = lightmapWidth
+    canvas.height = lightmapHeight
+    const imageData = context.createImageData(lightmapWidth, lightmapHeight)
+    imageData.data.set(Uint8ClampedArray.new(lightmapData.buffer, lightmapData.byteOffset, lightmapData.length))
+    context.putImageData(imageData, 0, 0)
+    const url = canvas.toDataURL
+    const comma = url.indexOf(",")
+    assert(comma >= 0)
+    const binary = atob(url.slice(comma + 1))
+    const bytes = Uint8Array.new(binary.count)
+    for i in 0..binary.count { bytes[i] = binary[i] }
+    return bytes
+  }
+
+  def allocateLightmap {
+    const samplesPerSide = 9
+    var visibleQuadCount = 0
+    var width = 1
+    var height = 1
+
+    for quad in quads {
+      if !quad.isHidden {
+        visibleQuadCount++
+      }
+    }
+
+    # Grow in powers of 2 until the lightmap is big enough for all quads
+    while (width / samplesPerSide) * (height / samplesPerSide) < visibleQuadCount {
+      if width == height { width *= 2 }
+      else { height *= 2 }
+    }
+
+    const quadsX = width / samplesPerSide
+    const data = Uint8Array.new(width * height * 4)
+    var index = 0
+
+    for quad in quads {
+      if quad.isHidden {
+        continue
+      }
+
+      const color = quad.color
+      const r = color.red
+      const g = color.green
+      const b = color.blue
+      const a = color.alpha
+
+      const s = (index % quadsX) * samplesPerSide
+      const t = (index / quadsX) * samplesPerSide
+      index++
+
+      quad.lightmapS0 = (s + 0.5) / width
+      quad.lightmapT0 = (t + 0.5) / height
+      quad.lightmapS1 = (s + samplesPerSide - 0.5) / width
+      quad.lightmapT1 = (t + samplesPerSide - 0.5) / height
+
+      for dt in 0..samplesPerSide {
+        for ds in 0..samplesPerSide {
+          const j = ((s + ds) + (t + dt) * width) * 4
+          data[j] = r
+          data[j + 1] = g
+          data[j + 2] = b
+          data[j + 3] = a
+        }
+      }
+    }
+
+    lightmapWidth = width
+    lightmapHeight = height
+    lightmapData = data
+  }
+
+  # struct WorldVertex {
+  #   highp vec3 position;
+  #   lowp vec4 lightmap; // lightmap.xz * (255.0 * 256.0 / 65535.0) + lightmap.yw * (255.0 / 65535.0)
+  #   lowp vec4 color;
+  # };
+  def compileLightmapVertices DataArray {
+    const file = DataArray.new
+
+    for quad in quads {
+      _compileLightmapVertex(file, quad, 0, 0)
+      _compileLightmapVertex(file, quad, 1, 0)
+      _compileLightmapVertex(file, quad, 1, 1)
+
+      _compileLightmapVertex(file, quad, 0, 0)
+      _compileLightmapVertex(file, quad, 1, 1)
+      _compileLightmapVertex(file, quad, 0, 1)
+    }
+
+    return file
+  }
+
+  def _compileLightmapVertex(file DataArray, quad Quad, u double, v double) {
+    file.appendFloat(quad.x + quad.ux * u + quad.vx * v)
+    file.appendFloat(quad.y + quad.uy * u + quad.vy * v)
+    file.appendFloat(quad.z + quad.uz * u + quad.vz * v)
+
+    const lightmapS = ((quad.lightmapS0 + (quad.lightmapS1 - quad.lightmapS0) * u) * 65535 + 0.5) as int
+    const lightmapT = ((quad.lightmapT0 + (quad.lightmapT1 - quad.lightmapT0) * v) * 65535 + 0.5) as int
+
+    file.appendByte(lightmapS >> 8)
+    file.appendByte(lightmapS & 255)
+    file.appendByte(lightmapT >> 8)
+    file.appendByte(lightmapT & 255)
+
+    file.appendColor(quad.color)
+  }
+}

@@ -89,6 +89,25 @@ class DataArray {
     return value
   }
 
+  def readColor Color {
+    assert(_byteOffset + 4 <= _byteCount)
+    var value = Color.new(
+      _bytes[_byteOffset],
+      _bytes[_byteOffset + 1],
+      _bytes[_byteOffset + 2],
+      _bytes[_byteOffset + 3])
+    _byteOffset += 4
+    return value
+  }
+
+  def readFloat double {
+    assert(_byteOffset + 4 <= _byteCount)
+    assert(_byteOffset == (_byteOffset & ~3))
+    var value = _floats[_byteOffset >> 2]
+    _byteOffset += 4
+    return value
+  }
+
   def _grow(amount int) {
     if _bytes == null || _byteCount + amount > _bytes.length {
       var floats = Float32Array.new((_byteCount + amount) * 2 + 3 >> 2)

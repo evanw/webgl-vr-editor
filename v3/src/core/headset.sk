@@ -26,7 +26,7 @@ class PassThroughHeadset :: Headset {
   def new(context GPU.Context, delegate HeadsetDelegate) {
     _context = context
     _delegate = delegate
-    _worldMaterial = context.createMaterial(.POSITION_F3_CENTER_F3_COLOR_B4, GLSLX_SOURCE_WORLD_VERTEX, GLSLX_SOURCE_WORLD_FRAGMENT)
+    _worldMaterial = context.createMaterial(App.WORLD_VERTEX_FORMAT, GLSLX_SOURCE_WORLD_VERTEX, GLSLX_SOURCE_WORLD_FRAGMENT)
   }
 
   def draw {
@@ -54,8 +54,8 @@ class GoogleCardboardHeadset :: Headset {
   def new(context GPU.Context, delegate HeadsetDelegate, pool GPU.BufferPool) {
     _context = context
     _delegate = delegate
-    _maskMaterial = context.createMaterial(.POSITION_F3, GLSLX_SOURCE_MASK_VERTEX, GLSLX_SOURCE_MASK_FRAGMENT)
-    _worldMaterial = context.createMaterial(.POSITION_F3_CENTER_F3_COLOR_B4, GLSLX_SOURCE_WORLD_VERTEX_DISTORTED, GLSLX_SOURCE_WORLD_FRAGMENT)
+    _maskMaterial = context.createMaterial(App.POSITION_F3, GLSLX_SOURCE_MASK_VERTEX, GLSLX_SOURCE_MASK_FRAGMENT)
+    _worldMaterial = context.createMaterial(App.WORLD_VERTEX_FORMAT, GLSLX_SOURCE_WORLD_VERTEX_DISTORTED, GLSLX_SOURCE_WORLD_FRAGMENT)
 
     const viewer = _viewer
     const device = _device
@@ -87,7 +87,7 @@ class GoogleCardboardHeadset :: Headset {
       point.y = viewport[1] + viewport[3] * (y * scale - noLensFrustum[3]) / (noLensFrustum[1] - noLensFrustum[3])
     }
 
-    _maskArea = pool.allocate(GPU.VertexFormat.POSITION_F3, _generateMaskMesh(_projectPoint).bytes)
+    _maskArea = pool.allocate(App.POSITION_F3, _generateMaskMesh(_projectPoint).bytes)
   }
 
   def draw {

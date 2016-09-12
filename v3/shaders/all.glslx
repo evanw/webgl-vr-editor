@@ -1,6 +1,7 @@
 // Do not use mediump, causes vertices to wiggle on iOS
 precision highp float;
 
+uniform sampler2D lightmap;
 uniform sampler2D texture;
 
 uniform mat4 matrixModelview;
@@ -13,13 +14,14 @@ uniform vec4 viewport;
 uniform vec4 inverseDistortion;
 uniform float flip;
 
-attribute vec3 center3;
 attribute vec3 position3;
-attribute vec4 color4;
+attribute vec4 center4;
+attribute vec4 lightmap4;
+attribute vec4 texture4;
 
 varying float _mask;
-varying vec2 _coord2;
-varying vec4 _color4;
+varying vec2 _lightmap2;
+varying vec2 _texture2;
 
 // Frustum coordinates
 const int LEFT = 0;
@@ -32,12 +34,6 @@ const int X = 0;
 const int Y = 1;
 const int W = 2;
 const int H = 3;
-
-// Cell values
-const float DIRT = 1.0;
-const float JUMP = 2.0;
-const float ROCK = 3.0;
-const float WATER = 4.0;
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -53,20 +49,18 @@ export void maskFragment() {
 ////////////////////////////////////////////////////////////////////////////////
 
 vec4 worldPosition() {
+  vec3 center3 = position3 + center4.xyz - 0.5;
   return matrixProjection * matrixModelview * vec4(mix(position3, center3, clamp(dot(eye.xyz, center3) - eye.w, 0.0, 1.0)), 1);
 }
 
-vec4 decodeColor() {
-  if (color4.z < (DIRT + 0.5) / 255.0) return vec4(0.75, 0.5, 0.25, 1);
-  if (color4.z < (JUMP + 0.5) / 255.0) return vec4(1, 1, 0, 1);
-  if (color4.z < (ROCK + 0.5) / 255.0) return vec4(0.75, 0.75, 0.75, 1);
-  if (color4.z < (WATER + 0.5) / 255.0) return vec4(0, 0.25, 0.75, 1);
-  return vec4(1);
+vec2 decodePackedVec2(vec4 value) {
+  return value.xz * (255.0 * 256.0 / 65535.0) + value.yw * (255.0 / 65535.0);
 }
 
 export void worldVertex() {
-  _color4 = decodeColor();
-  _coord2 = color4.xy;
+  _mask = center4.w;
+  _texture2 = decodePackedVec2(texture4);
+  _lightmap2 = decodePackedVec2(lightmap4);
   gl_Position = worldPosition();
 }
 
@@ -85,12 +79,14 @@ export void worldVertexDistorted() {
   position.x = ((p * d - noLensFrustum[LEFT]) / (noLensFrustum[RIGHT] - noLensFrustum[LEFT]) * 2.0 - 1.0) * w * flip;
   position.y = ((q * d - noLensFrustum[BOTTOM]) / (noLensFrustum[TOP] - noLensFrustum[BOTTOM]) * 2.0 - 1.0) * w;
 
-  _color4 = decodeColor();
-  _coord2 = color4.xy;
+  _mask = center4.w;
+  _texture2 = decodePackedVec2(texture4);
+  _lightmap2 = decodePackedVec2(lightmap4);
   gl_Position = position;
 }
 
 export void worldFragment() {
-  vec4 sample = texture2D(texture, _coord2);
-  gl_FragColor = _color4 * (1.0 - 0.1 * float(sample.x > 0.6));
+  gl_FragColor =
+    texture2D(lightmap, _lightmap2) *
+    (_mask * (1.0 - 0.1 * float(texture2D(texture, _texture2).x > 0.5)));
 }
