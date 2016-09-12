@@ -29,6 +29,21 @@ namespace GPU {
       _chunks.append(chunk)
       return chunk.tryToAllocate(stride, bytes)
     }
+
+    def allocateAreas(format VertexFormat, bytes Uint8Array) List<BufferArea> {
+      var areas List<BufferArea> = []
+      var chunkSize = BufferChunk.BYTE_COUNT - BufferChunk.BYTE_COUNT % format.stride
+      var start = 0
+
+      assert(chunkSize % format.stride == 0)
+
+      while start < bytes.length {
+        areas.append(allocate(format, bytes.subarray(start, start + chunkSize)))
+        start += chunkSize
+      }
+
+      return areas
+    }
   }
 
   class BufferChunk {

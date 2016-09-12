@@ -135,7 +135,7 @@ class EditMode :: Mode {
       case .UNDO { _tracker.undo }
       case .REDO { _tracker.redo }
 
-      case .N1 { _setAll(.DIRT) }
+      case .N1 { _setAll(.GRASS) }
       case .N2 { _setAll(.ROCK) }
       case .N3 { _setAll(.WATER) }
       case .N4 { _setAll(.JUMP) }

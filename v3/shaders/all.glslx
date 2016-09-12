@@ -8,20 +8,25 @@ uniform mat4 matrixModelview;
 uniform mat4 matrixProjection;
 uniform vec4 eye;
 
+uniform float flip;
+uniform vec3 light;
+uniform vec4 inverseDistortion;
 uniform vec4 lensFrustum;
 uniform vec4 noLensFrustum;
 uniform vec4 viewport;
-uniform vec4 inverseDistortion;
-uniform float flip;
 
+attribute vec3 normal3;
 attribute vec3 position3;
 attribute vec4 center4;
+attribute vec4 color4;
 attribute vec4 lightmap4;
 attribute vec4 texture4;
 
-varying float _mask;
+varying float _value;
 varying vec2 _lightmap2;
 varying vec2 _texture2;
+varying vec3 _position3;
+varying vec4 _color4;
 
 // Frustum coordinates
 const int LEFT = 0;
@@ -35,15 +40,43 @@ const int Y = 1;
 const int W = 2;
 const int H = 3;
 
+vec2 decodePackedVec2(vec4 value) {
+  return value.xz * (255.0 * 256.0 / 65535.0) + value.yw * (255.0 / 65535.0);
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 
 export void maskVertex() {
-  _mask = position3.z;
+  _value = position3.z;
   gl_Position = vec4(position3.x * flip, position3.y, 0, 1);
 }
 
 export void maskFragment() {
-  gl_FragColor = vec4(_mask);
+  gl_FragColor = vec4(_value);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+export void depthVertex() {
+  _value = (gl_Position = matrixModelview * vec4(position3, 1)).z * 0.5 + 0.5;
+}
+
+export void depthFragment() {
+  gl_FragColor = vec4(_value);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+export void shadowVertex() {
+  _color4 = color4;
+  _value = sqrt(max(0.0, dot(light, normal3))); // sqrt() for gamma correction
+  _position3 = (matrixModelview * vec4(position3, 1)).xyz * 0.5 + 0.5;
+  gl_Position = vec4(decodePackedVec2(lightmap4) * 2.0 - 1.0, 0, 1);
+}
+
+export void shadowFragment() {
+  float depth = texture2D(texture, _position3.xy).x;
+  gl_FragColor = vec4(_color4.xyz * (_value * float(depth + 2.0 / 255.0 > _position3.z)), 1);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -53,12 +86,8 @@ vec4 worldPosition() {
   return matrixProjection * matrixModelview * vec4(mix(position3, center3, clamp(dot(eye.xyz, center3) - eye.w, 0.0, 1.0)), 1);
 }
 
-vec2 decodePackedVec2(vec4 value) {
-  return value.xz * (255.0 * 256.0 / 65535.0) + value.yw * (255.0 / 65535.0);
-}
-
 export void worldVertex() {
-  _mask = center4.w;
+  _value = center4.w;
   _texture2 = decodePackedVec2(texture4);
   _lightmap2 = decodePackedVec2(lightmap4);
   gl_Position = worldPosition();
@@ -79,7 +108,7 @@ export void worldVertexDistorted() {
   position.x = ((p * d - noLensFrustum[LEFT]) / (noLensFrustum[RIGHT] - noLensFrustum[LEFT]) * 2.0 - 1.0) * w * flip;
   position.y = ((q * d - noLensFrustum[BOTTOM]) / (noLensFrustum[TOP] - noLensFrustum[BOTTOM]) * 2.0 - 1.0) * w;
 
-  _mask = center4.w;
+  _value = center4.w;
   _texture2 = decodePackedVec2(texture4);
   _lightmap2 = decodePackedVec2(lightmap4);
   gl_Position = position;
@@ -88,5 +117,5 @@ export void worldVertexDistorted() {
 export void worldFragment() {
   gl_FragColor =
     texture2D(lightmap, _lightmap2) *
-    (_mask * (1.0 - 0.1 * float(texture2D(texture, _texture2).x > 0.5)));
+    (_value * (1.0 - 0.1 * float(texture2D(texture, _texture2).x > 0.5)));
 }

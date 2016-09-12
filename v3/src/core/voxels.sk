@@ -1,17 +1,17 @@
 enum Cell {
   EMPTY
 
-  DIRT
+  GRASS
   JUMP
   ROCK
   WATER
 
   def color Color {
     switch self {
-      case .DIRT { return Color.new(0xBF, 0x7F, 0x3F) }
-      case .JUMP { return Color.new(0xFF, 0xFF, 0) }
-      case .ROCK { return Color.new(0xBF, 0xBF, 0xBF) }
-      case .WATER { return Color.new(0, 0x3F, 0xBF) }
+      case .GRASS { return Color.new(0x7F, 0xFF, 0) }
+      case .JUMP { return Color.new(0xFF, 0xFF, 0x3F) }
+      case .ROCK { return Color.new(0xFF, 0xFF, 0xFF) }
+      case .WATER { return Color.new(0x3F, 0x7F, 0xFF) }
       default { return .TRANSPARENT }
     }
   }
@@ -27,6 +27,7 @@ class Voxels {
   const _pool GPU.BufferPool
   const _lightmap GPU.Texture
   const _quadMesh = QuadMesh.new
+  var _lightmapRenderer LightmapRenderer = null
   var _chunkMap IntMap<Chunk> = {}
   var _chunkList List<Chunk> = []
   var _needsCompile = true
@@ -73,11 +74,20 @@ class Voxels {
       _quadMesh.allocateLightmap
       _lightmap.resize(_quadMesh.lightmapWidth, _quadMesh.lightmapHeight, _quadMesh.lightmapData)
       _needsCompile = false
+
+      const triangleVertices = DataArray.new
+      for chunk in _chunkList { chunk.triangleMesh.compileLightmapVertices(_quadMesh, triangleVertices) }
+      _lightmapRenderer ?= LightmapRenderer.new(_context, _pool, _lightmap, _quadMesh, Vector3.new.setTo(2, 3, 1).normalize)
+      _lightmapRenderer.reset(triangleVertices, _quadMesh.compileLightmapVertices)
     }
   }
 
   def draw(material GPU.Material, eye Vector3, orientation Matrix) {
     compileIfNeeded
+
+    if _lightmapRenderer != null {
+      _lightmapRenderer.iterate
+    }
 
     for chunk in _chunkList {
       chunk.distanceToEye = _temp.setTo(chunk.centerX, chunk.centerY, chunk.centerZ).subtract(eye).lengthSquared
@@ -224,6 +234,10 @@ class Voxels {
   }
 
   def saveLightmapToFile Uint8Array {
+    if _lightmapRenderer != null {
+      _lightmapRenderer.downloadLightmap
+    }
+
     return _quadMesh.saveLightmapToFile
   }
 }

@@ -2,6 +2,12 @@ namespace App {
   const POSITION_F3 = GPU.VertexFormat.new
     .add(GLSLX_NAME_POSITION3, .FLOAT, 3)
 
+  const SHADOW_VERTEX_FORMAT = GPU.VertexFormat.new
+    .add(GLSLX_NAME_POSITION3, .FLOAT, 3)
+    .add(GLSLX_NAME_NORMAL3, .FLOAT, 3)
+    .add(GLSLX_NAME_LIGHTMAP4, .BYTE, 4)
+    .add(GLSLX_NAME_COLOR4, .BYTE, 4)
+
   const WORLD_VERTEX_FORMAT = GPU.VertexFormat.new
     .add(GLSLX_NAME_POSITION3, .FLOAT, 3)
     .add(GLSLX_NAME_TEXTURE4, .BYTE, 4)

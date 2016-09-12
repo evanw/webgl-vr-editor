@@ -94,25 +94,23 @@ class TriangleMesh {
   #   lowp vec4 centerOffset; // position + centerOffset.xyz - 0.5
   # };
   def compileWorldVertices(mode CompileMode, quadMesh QuadMesh) DataArray {
-    const file = DataArray.new
+    const array = DataArray.new
     const quads = quadMesh.quads
 
     for tri in triangles {
       const quad = quads[tri.quad]
 
-      if mode == .VISIBLE_ONLY && quad.isHidden {
-        continue
+      if mode != .VISIBLE_ONLY || !quad.isHidden {
+        _compileWorldVertex(array, quad, tri.quadU0, tri.quadV0)
+        _compileWorldVertex(array, quad, tri.quadU1, tri.quadV1)
+        _compileWorldVertex(array, quad, tri.quadU2, tri.quadV2)
       }
-
-      _compileWorldVertex(file, quad, tri.quadU0, tri.quadV0)
-      _compileWorldVertex(file, quad, tri.quadU1, tri.quadV1)
-      _compileWorldVertex(file, quad, tri.quadU2, tri.quadV2)
     }
 
-    return file
+    return array
   }
 
-  def _compileWorldVertex(file DataArray, quad Quad, u double, v double) {
+  def _compileWorldVertex(array DataArray, quad Quad, u double, v double) {
     const x = quad.x + quad.ux * u + quad.vx * v
     const y = quad.y + quad.uy * u + quad.vy * v
     const z = quad.z + quad.uz * u + quad.vz * v
@@ -123,25 +121,52 @@ class TriangleMesh {
     const lightmapS = ((quad.lightmapS0 + (quad.lightmapS1 - quad.lightmapS0) * u) * 65535 + 0.5) as int
     const lightmapT = ((quad.lightmapT0 + (quad.lightmapT1 - quad.lightmapT0) * v) * 65535 + 0.5) as int
 
-    file.appendFloat(x)
-    file.appendFloat(y)
-    file.appendFloat(z)
+    array.appendFloat(x)
+    array.appendFloat(y)
+    array.appendFloat(z)
 
-    file.appendByte(textureS >> 8)
-    file.appendByte(textureS & 255)
-    file.appendByte(textureT >> 8)
-    file.appendByte(textureT & 255)
+    array.appendByte(textureS >> 8)
+    array.appendByte(textureS & 255)
+    array.appendByte(textureT >> 8)
+    array.appendByte(textureT & 255)
 
-    file.appendByte(lightmapS >> 8)
-    file.appendByte(lightmapS & 255)
-    file.appendByte(lightmapT >> 8)
-    file.appendByte(lightmapT & 255)
+    array.appendByte(lightmapS >> 8)
+    array.appendByte(lightmapS & 255)
+    array.appendByte(lightmapT >> 8)
+    array.appendByte(lightmapT & 255)
 
     # Support center offsets up to ±0.5
-    file.appendByte(Math.round(127.5 + (quad.cx - x) * 255) as int)
-    file.appendByte(Math.round(127.5 + (quad.cy - y) * 255) as int)
-    file.appendByte(Math.round(127.5 + (quad.cz - z) * 255) as int)
-    file.appendByte(quad.isHidden ? 0 : 255)
+    array.appendByte(Math.round(127.5 + (quad.cx - x) * 255) as int)
+    array.appendByte(Math.round(127.5 + (quad.cy - y) * 255) as int)
+    array.appendByte(Math.round(127.5 + (quad.cz - z) * 255) as int)
+    array.appendByte(quad.isHidden ? 0 : 255)
+  }
+
+  # struct LightmapVertex {
+  #   highp vec3 position;
+  # };
+  def compileLightmapVertices(quadMesh QuadMesh, array DataArray) {
+    const quads = quadMesh.quads
+
+    for tri in triangles {
+      const quad = quads[tri.quad]
+
+      if !quad.isHidden {
+        _compileLightmapVertex(array, quad, tri.quadU0, tri.quadV0)
+        _compileLightmapVertex(array, quad, tri.quadU1, tri.quadV1)
+        _compileLightmapVertex(array, quad, tri.quadU2, tri.quadV2)
+      }
+    }
+  }
+
+  def _compileLightmapVertex(array DataArray, quad Quad, u double, v double) {
+    const x = quad.x + quad.ux * u + quad.vx * v
+    const y = quad.y + quad.uy * u + quad.vy * v
+    const z = quad.z + quad.uz * u + quad.vz * v
+
+    array.appendFloat(x)
+    array.appendFloat(y)
+    array.appendFloat(z)
   }
 }
 
@@ -293,34 +318,202 @@ class QuadMesh {
   #   lowp vec4 color;
   # };
   def compileLightmapVertices DataArray {
-    const file = DataArray.new
+    const array = DataArray.new
 
     for quad in quads {
-      _compileLightmapVertex(file, quad, 0, 0)
-      _compileLightmapVertex(file, quad, 1, 0)
-      _compileLightmapVertex(file, quad, 1, 1)
+      if quad.isHidden {
+        continue
+      }
 
-      _compileLightmapVertex(file, quad, 0, 0)
-      _compileLightmapVertex(file, quad, 1, 1)
-      _compileLightmapVertex(file, quad, 0, 1)
+      _compileLightmapVertex(array, quad, 0, 0)
+      _compileLightmapVertex(array, quad, 1, 0)
+      _compileLightmapVertex(array, quad, 1, 1)
+
+      _compileLightmapVertex(array, quad, 0, 0)
+      _compileLightmapVertex(array, quad, 1, 1)
+      _compileLightmapVertex(array, quad, 0, 1)
     }
 
-    return file
+    return array
   }
 
-  def _compileLightmapVertex(file DataArray, quad Quad, u double, v double) {
-    file.appendFloat(quad.x + quad.ux * u + quad.vx * v)
-    file.appendFloat(quad.y + quad.uy * u + quad.vy * v)
-    file.appendFloat(quad.z + quad.uz * u + quad.vz * v)
+  def _compileLightmapVertex(array DataArray, quad Quad, u double, v double) {
+    const ux = quad.ux
+    const uy = quad.uy
+    const uz = quad.uz
 
-    const lightmapS = ((quad.lightmapS0 + (quad.lightmapS1 - quad.lightmapS0) * u) * 65535 + 0.5) as int
-    const lightmapT = ((quad.lightmapT0 + (quad.lightmapT1 - quad.lightmapT0) * v) * 65535 + 0.5) as int
+    const vx = quad.vx
+    const vy = quad.vy
+    const vz = quad.vz
 
-    file.appendByte(lightmapS >> 8)
-    file.appendByte(lightmapS & 255)
-    file.appendByte(lightmapT >> 8)
-    file.appendByte(lightmapT & 255)
+    const s0 = quad.lightmapS0 * lightmapWidth
+    const t0 = quad.lightmapT0 * lightmapHeight
+    const s1 = quad.lightmapS1 * lightmapWidth
+    const t1 = quad.lightmapT1 * lightmapHeight
 
-    file.appendColor(quad.color)
+    const s0i = Math.floor(s0)
+    const t0i = Math.floor(t0)
+    const s1i = Math.ceil(s1)
+    const t1i = Math.ceil(t1)
+
+    # Expand out by half a texel in all directions
+    u = (s0i + (s1i - s0i) * u - s0) / (s1 - s0)
+    v = (t0i + (t1i - t0i) * v - t0) / (t1 - t0)
+
+    array.appendFloat(quad.x + ux * u + vx * v)
+    array.appendFloat(quad.y + uy * u + vy * v)
+    array.appendFloat(quad.z + uz * u + vz * v)
+
+    array.appendFloat(uy * vz - uz * vy)
+    array.appendFloat(uz * vx - ux * vz)
+    array.appendFloat(ux * vy - uy * vx)
+
+    const lightmapS = ((s0 + (s1 - s0) * u) / lightmapWidth * 65535 + 0.5) as int
+    const lightmapT = ((t0 + (t1 - t0) * v) / lightmapHeight * 65535 + 0.5) as int
+
+    array.appendByte(lightmapS >> 8)
+    array.appendByte(lightmapS & 255)
+    array.appendByte(lightmapT >> 8)
+    array.appendByte(lightmapT & 255)
+
+    array.appendColor(quad.color)
   }
+}
+
+class LightmapRenderer {
+  const _context GPU.Context
+  const _pool GPU.BufferPool
+  const _lightmap GPU.Texture
+  const _quadMesh QuadMesh
+  const _sunlightDirection Vector3
+  const _modelviewMatrix = Matrix.new
+  const _orientationMatrix = Matrix.new
+  const _axisX = Vector3.new
+  const _axisY = Vector3.new
+  const _axisZ = Vector3.new
+  const _temp = Vector3.new
+
+  var _trianglesArray DataArray = null
+  var _quadsArray DataArray = null
+  var _trianglesAreas List<GPU.BufferArea> = null
+  var _quadsAreas List<GPU.BufferArea> = null
+  var _shadowMapTexture GPU.Texture = null
+  var _depthBufferTexture GPU.Texture = null
+  var _depthTextureSet GPU.TextureSet = null
+  var _shadowTextureSet GPU.TextureSet = null
+  var _depthMaterial GPU.Material = null
+  var _shadowMaterial GPU.Material = null
+  var _sampleWeight = 0
+  var _flip = false
+
+  def downloadLightmap {
+    _context.setTextureSet(_shadowTextureSet)
+    _context.setViewport(0, 0, _quadMesh.lightmapWidth, _quadMesh.lightmapHeight)
+    _context.readPixels(0, 0, _quadMesh.lightmapWidth, _quadMesh.lightmapHeight, _quadMesh.lightmapData)
+    _context.setTextureSet(null)
+  }
+
+  def reset(trianglesArray DataArray, quadsArray DataArray) {
+    if _trianglesAreas != null { for area in _trianglesAreas { area.free } }
+    if _quadsAreas != null { for area in _quadsAreas { area.free } }
+
+    _trianglesArray = trianglesArray
+    _quadsArray = quadsArray
+
+    _trianglesAreas = _pool.allocateAreas(App.POSITION_F3, trianglesArray.bytes)
+    _quadsAreas = _pool.allocateAreas(App.SHADOW_VERTEX_FORMAT, quadsArray.bytes)
+
+    _shadowMapTexture ?= _context.createTexture(.RGBA_NEAREST_CLAMP, SHADOW_MAP_SIZE, SHADOW_MAP_SIZE)
+    _depthBufferTexture ?= _context.createTexture(.DEPTH_STENCIL, SHADOW_MAP_SIZE, SHADOW_MAP_SIZE)
+    _depthTextureSet ?= _context.createTextureSet(_shadowMapTexture, _depthBufferTexture)
+    _shadowTextureSet ?= _context.createTextureSet(_lightmap, null)
+
+    _depthMaterial = _context.createMaterial(App.POSITION_F3, GLSLX_SOURCE_DEPTH_VERTEX, GLSLX_SOURCE_DEPTH_FRAGMENT)
+    _shadowMaterial = _context.createMaterial(App.SHADOW_VERTEX_FORMAT, GLSLX_SOURCE_SHADOW_VERTEX, GLSLX_SOURCE_SHADOW_FRAGMENT)
+
+    _sampleWeight = 0
+  }
+
+  def iterate {
+    # Pick a random light direction
+    _flip = !_flip
+    if _flip {
+      _axisZ.setToRandomDirection.scaleBy(0.05).add(_sunlightDirection).normalize
+    } else {
+      _axisZ.setToRandomDirection
+      if _axisZ.y < 0 { _axisZ.y = -_axisZ.y }
+    }
+
+    # Create a coordinate system around that direction
+    _axisY.setToRandomDirection
+    _axisX.copyFrom(_axisY).crossWith(_axisZ).normalize
+    _axisY.copyFrom(_axisZ).crossWith(_axisX).normalize
+
+    _orientationMatrix.m00 = _axisX.x
+    _orientationMatrix.m01 = _axisX.y
+    _orientationMatrix.m02 = _axisX.z
+
+    _orientationMatrix.m10 = _axisY.x
+    _orientationMatrix.m11 = _axisY.y
+    _orientationMatrix.m12 = _axisY.z
+
+    _orientationMatrix.m20 = _axisZ.x
+    _orientationMatrix.m21 = _axisZ.y
+    _orientationMatrix.m22 = _axisZ.z
+
+    _trianglesArray.seekTo(0)
+
+    var xmin = Math.INFINITY
+    var ymin = Math.INFINITY
+    var zmin = Math.INFINITY
+
+    var xmax = -Math.INFINITY
+    var ymax = -Math.INFINITY
+    var zmax = -Math.INFINITY
+
+    for i in 0.._trianglesArray.byteCount / (4 * 3) {
+      _orientationMatrix.transformPoint(_temp.setTo(
+        _trianglesArray.readFloat,
+        _trianglesArray.readFloat,
+        _trianglesArray.readFloat))
+
+      xmin = Math.min(xmin, _temp.x)
+      ymin = Math.min(ymin, _temp.y)
+      zmin = Math.min(zmin, _temp.z)
+
+      xmax = Math.max(xmax, _temp.x)
+      ymax = Math.max(ymax, _temp.y)
+      zmax = Math.max(zmax, _temp.z)
+    }
+
+    _modelviewMatrix
+      .loadIdentity
+      .scaleBy(1.99999 / (xmax - xmin), 1.99999 / (ymax - ymin), 1.99999 / (zmin - zmax))
+      .translateBy(-(xmin + xmax) / 2, -(ymin + ymax) / 2, -(zmin + zmax) / 2)
+      .multiplyBy(_orientationMatrix)
+
+    # Compute the shadow map
+    _context.setTextureSet(_depthTextureSet)
+    _context.setViewport(0, 0, SHADOW_MAP_SIZE, SHADOW_MAP_SIZE)
+    _context.clear(.ALL)
+    _depthMaterial.setUniformMat4(GLSLX_NAME_MATRIX_MODELVIEW, _modelviewMatrix)
+    for area in _trianglesAreas { _context.draw(.TRIANGLES, _depthMaterial, area, .CULL_BACK_FACES) }
+    _context.setTextureSet(null)
+
+    # Accumulate the shadow map
+    _context.setInterpolateBlendState(1 - _sampleWeight / (_sampleWeight + 1.0))
+    _context.setTextureSet(_shadowTextureSet)
+    _context.setViewport(0, 0, _lightmap.width, _lightmap.height)
+    _shadowMaterial.setUniformSampler(GLSLX_NAME_TEXTURE, _shadowMapTexture, 0)
+    _shadowMaterial.setUniformVec3(GLSLX_NAME_LIGHT, _axisZ.x, _axisZ.y, _axisZ.z)
+    _shadowMaterial.setUniformMat4(GLSLX_NAME_MATRIX_MODELVIEW, _modelviewMatrix)
+    for area in _quadsAreas { _context.draw(.TRIANGLES, _shadowMaterial, area, .NO_CULLING) }
+    _context.setTextureSet(null)
+    _context.setCopyBlendState
+    _sampleWeight++
+  }
+}
+
+namespace LightmapRenderer {
+  const SHADOW_MAP_SIZE = 1024
 }

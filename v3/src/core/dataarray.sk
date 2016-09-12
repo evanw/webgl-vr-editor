@@ -16,6 +16,11 @@ class DataArray {
     _bytes.set(bytes)
   }
 
+  def seekTo(offset int) {
+    assert(0 <= offset && offset <= _byteCount)
+    _byteOffset = offset
+  }
+
   def isEmpty bool {
     return _byteCount == 0
   }

@@ -32,6 +32,16 @@ class Vector3 {
     return self
   }
 
+  def crossWith(v Vector3) Vector3 {
+    const x = self.y * v.z - self.z * v.y
+    const y = self.z * v.x - self.x * v.z
+    const z = self.x * v.y - self.y * v.x
+    self.x = x
+    self.y = y
+    self.z = z
+    return self
+  }
+
   def subtract(v Vector3) Vector3 {
     x -= v.x
     y -= v.y
@@ -69,8 +79,21 @@ class Vector3 {
     return self
   }
 
+  def setToRandomDirection Vector3 {
+    y = Math.random * 2 - 1
+    var theta = Math.random * (Math.PI * 2)
+    var cosPhi = Math.sqrt(Math.max(0, 1 - y * y))
+    x = Math.cos(theta) * cosPhi
+    z = Math.sin(theta) * cosPhi
+    return self
+  }
+
   def free {
     _pool.append(self)
+  }
+
+  def toString string {
+    return "Vector3(\(x), \(y), \(z))"
   }
 }
 

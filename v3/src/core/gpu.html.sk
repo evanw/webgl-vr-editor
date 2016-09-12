@@ -193,6 +193,17 @@ if TARGET == .JAVASCRIPT {
         _forceStateUpdate = false
       }
 
+      def readPixels(x int, y int, width int, height int, pixels Uint8Array) {
+        assert(x >= 0)
+        assert(y >= 0)
+        assert(width > 0)
+        assert(height > 0)
+        assert(pixels.length == width * height * 4)
+
+        _updateTextureSetAndViewport
+        _gl.readPixels(x, y, width, height, _gl.RGBA, _gl.UNSIGNED_BYTE, pixels)
+      }
+
       def _updateCullState(cull Cull) {
         if cull == .CULL_BACK_FACES && !_cullBackFaces {
           _cullBackFaces = true

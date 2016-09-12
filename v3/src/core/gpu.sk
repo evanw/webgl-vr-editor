@@ -56,6 +56,7 @@ namespace GPU {
     def currentTextureSet TextureSet
     def draw(primitive Primitive, material Material, area BufferArea, cull Cull)
     def height int
+    def readPixels(x int, y int, width int, height int, pixels Uint8Array)
     def removeContextResetHandler(callback fn())
     def resize(width int, height int)
     def setDepthMode(mode DepthMode)
